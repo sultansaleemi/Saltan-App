@@ -1246,6 +1246,12 @@ function App() {
 
 
   const [
+    installPrompt,
+    setInstallPrompt
+  ] = useState(null);
+
+
+  const [
     toast,
     setToast
   ] = useState(null);
@@ -1294,6 +1300,51 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [toast]);
+
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+
+    const onAppInstalled = () => {
+      setInstallPrompt(null);
+    };
+
+    window.addEventListener(
+      "beforeinstallprompt",
+      onBeforeInstallPrompt
+    );
+
+    window.addEventListener(
+      "appinstalled",
+      onAppInstalled
+    );
+
+    return () => {
+      window.removeEventListener(
+        "beforeinstallprompt",
+        onBeforeInstallPrompt
+      );
+
+      window.removeEventListener(
+        "appinstalled",
+        onAppInstalled
+      );
+    };
+  }, []);
+
+
+  const installApp = async () => {
+    if (!installPrompt) return;
+
+    installPrompt.prompt();
+
+    await installPrompt.userChoice;
+
+    setInstallPrompt(null);
+  };
 
 
   const dataRef =
@@ -1555,15 +1606,32 @@ function App() {
   // Stock purchases are tracked separately.
   // They are NOT deducted from net profit again.
 
-  const stockEx =
-    purchases.reduce(
-      (sum, purchase) =>
-        sum +
-        number(
-          purchase.total
-        ),
-      0
+  const activeProductIds =
+    new Set(
+      data.products.map(
+        product =>
+          product.id
+      )
     );
+
+
+  const stockEx =
+    purchases
+      .filter(
+        purchase =>
+          purchase.productId &&
+          activeProductIds.has(
+            purchase.productId
+          )
+      )
+      .reduce(
+        (sum, purchase) =>
+          sum +
+          number(
+            purchase.total
+          ),
+        0
+      );
 
 
   // General expenses are separate from orders.
@@ -1729,6 +1797,17 @@ function App() {
         <div className="brand">
           Sale <span>Tracker</span>
         </div>
+
+
+        {installPrompt && (
+          <button
+            className="ghost install-btn"
+            onClick={installApp}
+            type="button"
+          >
+            Install app
+          </button>
+        )}
 
 
         <div
@@ -1994,11 +2073,6 @@ function Dashboard({
       .slice(0, 8);
 
 
-  const activity =
-    (data.activities || [])
-      .slice(0, 8);
-
-
   return (
 
     <section>
@@ -2131,66 +2205,6 @@ function Dashboard({
 
 
       <div className="dashboard-grid">
-
-        <div className="panel activity-panel">
-
-          <div className="panel-head">
-
-            <h2>
-              Recent activity
-            </h2>
-
-            <span>
-              {(data.activities || []).length} total
-            </span>
-
-          </div>
-
-
-          {activity.length
-            ? (
-              <div className="activity-list">
-                {activity.map(item => (
-                  <div
-                    className="activity-item"
-                    key={item.id}
-                  >
-                    <span
-                      className={
-                        "activity-tag " +
-                        item.type
-                      }
-                    >
-                      {item.type}
-                    </span>
-
-                    <div className="activity-copy">
-                      <strong>
-                        {item.text}
-                      </strong>
-
-                      <small>
-                        {new Date(
-                          item.createdAt
-                        ).toLocaleString(
-                          [],
-                          {
-                            dateStyle: "short",
-                            timeStyle: "short"
-                          }
-                        )}
-                      </small>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )
-            : (
-              <Empty text="No recent activity." />
-            )}
-
-        </div>
-
 
         <div className="panel">
 

@@ -1,4 +1,4 @@
-const CACHE = 'sale-tracker-v2';
+const CACHE = 'sale-tracker-v3';
 const PRECACHE = [
   '/',
   '/manifest.webmanifest',
@@ -26,10 +26,15 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Never try to cache browser-extension/internal requests.
   if (request.method !== 'GET') return;
 
   let url;
@@ -41,18 +46,17 @@ self.addEventListener('fetch', (event) => {
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
+  if (url.origin !== self.location.origin) return;
 
-      return fetch(request).then((response) => {
-        // Cache only successful same-origin HTTP(S) responses.
-        if (response.ok && url.origin === self.location.origin) {
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200) {
           const copy = response.clone();
           caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => {});
         }
         return response;
-      }).catch(() => caches.match('/'));
-    })
+      })
+      .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
   );
 });
