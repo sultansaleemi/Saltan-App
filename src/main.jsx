@@ -31,6 +31,7 @@ const empty = {
   orders: [],
   purchases: [],
   expenses: [],
+  activities: [],
   orderCounter: 0,
 
   settings: {
@@ -75,6 +76,7 @@ const merge = (d) => ({
   orders: d?.orders || [],
   purchases: d?.purchases || [],
   expenses: d?.expenses || [],
+  activities: d?.activities || [],
 
   settings: {
     ...empty.settings,
@@ -1243,6 +1245,57 @@ function App() {
   ] = useState("syncing");
 
 
+  const [
+    toast,
+    setToast
+  ] = useState(null);
+
+
+  const showToast = (message) => {
+    if (!message) return;
+
+    setToast({
+      id: Date.now() + Math.random(),
+      message
+    });
+  };
+
+
+  const addActivity = async (
+    type,
+    text,
+    extra = null
+  ) => {
+    const entry = {
+      id: uid(),
+      type,
+      text,
+      extra,
+      createdAt:
+        new Date().toISOString()
+    };
+
+    await update({
+      ...data,
+      activities: [
+        entry,
+        ...(data.activities || [])
+      ].slice(0, 25)
+    });
+  };
+
+
+  useEffect(() => {
+    if (!toast) return;
+
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 2200);
+
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+
   const dataRef =
     useRef(null);
 
@@ -1540,6 +1593,26 @@ function App() {
     generalEx;
 
 
+  // ----------------------------------------------------------
+  // BALANCE AFTER STOCK PURCHASES
+  //
+  // This is the remaining balance after taking the stock
+  // purchases out of the calculated net profit.
+  //
+  // Example:
+  // Sales = 99
+  // Order costs = 68
+  // General expenses = 0
+  // Net profit = 31
+  // Stock purchases = 330
+  // Balance after stock purchases = -299
+  // ----------------------------------------------------------
+
+  const cashAfterStockPurchases =
+    netProfit -
+    stockEx;
+
+
   // Stock calculation.
 
   const stock =
@@ -1600,6 +1673,9 @@ function App() {
 
     profit:
       netProfit,
+
+    // Balance remaining after stock purchases.
+    cashAfterStockPurchases,
 
     orders:
       orders.length,
@@ -1725,6 +1801,15 @@ function App() {
       </header>
 
 
+      {toast && (
+        <div className="toast-stack">
+          <div className="toast">
+            {toast.message}
+          </div>
+        </div>
+      )}
+
+
       <main>
 
         {page === "dashboard" && (
@@ -1736,6 +1821,7 @@ function App() {
             setPeriod={setPeriod}
             openReceipt={setReceipt}
             edit={setEditOrder}
+            addActivity={addActivity}
           />
 
         )}
@@ -1746,6 +1832,8 @@ function App() {
           <Products
             data={data}
             update={update}
+            toast={showToast}
+            addActivity={addActivity}
           />
 
         )}
@@ -1761,6 +1849,8 @@ function App() {
             add={() =>
               setSale(true)
             }
+            toast={showToast}
+            addActivity={addActivity}
           />
 
         )}
@@ -1771,6 +1861,8 @@ function App() {
           <Expenses
             data={data}
             update={update}
+            toast={showToast}
+            addActivity={addActivity}
           />
 
         )}
@@ -1837,6 +1929,8 @@ function App() {
             setSale(false)
           }
           receipt={setReceipt}
+          toast={showToast}
+          addActivity={addActivity}
         />
 
       )}
@@ -1852,6 +1946,8 @@ function App() {
             setEditOrder(null)
           }
           receipt={setReceipt}
+          toast={showToast}
+          addActivity={addActivity}
         />
 
       )}
@@ -1884,7 +1980,8 @@ function Dashboard({
   period,
   setPeriod,
   openReceipt,
-  edit
+  edit,
+  addActivity
 }) {
 
   const recent =
@@ -1894,6 +1991,11 @@ function Dashboard({
           number(b.orderNo) -
           number(a.orderNo)
       )
+      .slice(0, 8);
+
+
+  const activity =
+    (data.activities || [])
       .slice(0, 8);
 
 
@@ -2029,6 +2131,66 @@ function Dashboard({
 
 
       <div className="dashboard-grid">
+
+        <div className="panel activity-panel">
+
+          <div className="panel-head">
+
+            <h2>
+              Recent activity
+            </h2>
+
+            <span>
+              {(data.activities || []).length} total
+            </span>
+
+          </div>
+
+
+          {activity.length
+            ? (
+              <div className="activity-list">
+                {activity.map(item => (
+                  <div
+                    className="activity-item"
+                    key={item.id}
+                  >
+                    <span
+                      className={
+                        "activity-tag " +
+                        item.type
+                      }
+                    >
+                      {item.type}
+                    </span>
+
+                    <div className="activity-copy">
+                      <strong>
+                        {item.text}
+                      </strong>
+
+                      <small>
+                        {new Date(
+                          item.createdAt
+                        ).toLocaleString(
+                          [],
+                          {
+                            dateStyle: "short",
+                            timeStyle: "short"
+                          }
+                        )}
+                      </small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+            : (
+              <Empty text="No recent activity." />
+            )}
+
+        </div>
+
 
         <div className="panel">
 
@@ -2216,6 +2378,35 @@ function Dashboard({
 
         </div>
 
+
+        {/* NEW: BALANCE AFTER STOCK PURCHASES */}
+
+        <div className="stockline">
+
+          <div>
+            <b>
+              Balance after stock purchases
+            </b>
+
+            <small>
+              Net profit − stock purchases
+            </small>
+          </div>
+
+          <strong
+            className={
+              stats.cashAfterStockPurchases < 0
+                ? "negative"
+                : ""
+            }
+          >
+            {money(
+              stats.cashAfterStockPurchases
+            )}
+          </strong>
+
+        </div>
+
       </div>
 
     </section>
@@ -2279,7 +2470,9 @@ function Empty({
 
 function Products({
   data,
-  update
+  update,
+  toast,
+  addActivity
 }) {
 
   const [
@@ -2377,6 +2570,19 @@ function Products({
 
     await update(next);
 
+    addActivity(
+      "product",
+      p.id
+        ? `Product updated: ${p.name || "Untitled product"}`
+        : `Product added: ${p.name || "Untitled product"}`
+    );
+
+    toast(
+      p.id
+        ? "Product updated."
+        : "Product added."
+    );
+
     setForm(null);
   };
 
@@ -2385,17 +2591,15 @@ function Products({
 
     if (
       !confirm(
-        "Remove product? Historical purchase records and past orders will stay saved."
+        "Remove product? This will also permanently remove all stock purchase records for this product. Past orders will stay saved. Continue?"
       )
     ) {
       return;
     }
 
 
-    // IMPORTANT:
-    //
-    // We delete only the product itself.
-    // We DO NOT delete purchase history.
+    // Remove the product itself and any stock purchase records
+    // tied to that product so its cost drops out of total expenses.
 
     await update({
 
@@ -2405,8 +2609,21 @@ function Products({
         data.products.filter(
           x =>
             x.id !== p.id
+        ),
+
+      purchases:
+        data.purchases.filter(
+          x =>
+            x.productId !== p.id
         )
     });
+
+    addActivity(
+      "product",
+      `Product removed: ${p.name || "Untitled product"}`
+    );
+
+    toast("Product deleted.");
   };
 
 
@@ -2659,7 +2876,9 @@ function Orders({
   update,
   receipt,
   edit,
-  add
+  add,
+  toast,
+  addActivity
 }) {
 
   const [
@@ -2748,6 +2967,18 @@ function Orders({
               x.id !== id
           )
       });
+
+      const deleted =
+        data.orders.find(
+          x => x.id === id
+        );
+
+      addActivity(
+        "order",
+        `Order deleted: ${deleted?.productName || "Order"}`
+      );
+
+      toast("Order deleted.");
     };
 
 
@@ -3015,7 +3246,9 @@ function SaleModal({
   update,
   close,
   receipt,
-  initial
+  initial,
+  toast,
+  addActivity
 }) {
 
   const [
@@ -3166,6 +3399,19 @@ function SaleModal({
 
 
       await update(next);
+
+      addActivity(
+        "order",
+        editing
+          ? `Order edited: ${order.productName || "Order"}`
+          : `Order added: ${order.productName || "Order"}`
+      );
+
+      toast(
+        editing
+          ? "Order edited."
+          : "Order added."
+      );
 
       close();
 
@@ -3534,7 +3780,9 @@ const expenseCategories = [
 
 function Expenses({
   data,
-  update
+  update,
+  toast,
+  addActivity
 }) {
 
   const [
@@ -3668,6 +3916,19 @@ function Expenses({
 
       await update(next);
 
+      addActivity(
+        "expense",
+        e.id
+          ? `Expense edited: ${expense.description || expense.category || "Expense"}`
+          : `Expense added: ${expense.description || expense.category || "Expense"}`
+      );
+
+      toast(
+        e.id
+          ? "Expense edited."
+          : "Expense added."
+      );
+
       setForm(null);
     };
 
@@ -3684,6 +3945,11 @@ function Expenses({
       }
 
 
+      const deletedExp =
+        data.expenses.find(
+          e => e.id === id
+        );
+
       await update({
 
         ...data,
@@ -3694,6 +3960,13 @@ function Expenses({
               e.id !== id
           )
       });
+
+      addActivity(
+        "expense",
+        `Expense deleted: ${deletedExp?.description || deletedExp?.category || "Expense"}`
+      );
+
+      toast("Expense deleted.");
     };
 
 
@@ -5016,3 +5289,4 @@ createRoot(
 ).render(
   <App />
 );
+
