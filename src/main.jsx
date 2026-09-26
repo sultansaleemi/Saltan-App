@@ -858,81 +858,42 @@ async function initialSync(localData) {
     !cloudHasRecords
   ) {
 
-    await uploadAllData(
-      localData
-    );
-
-    return localData;
+    return localData.pendingSync
+      ? (
+        await syncChanges(
+          cloud,
+          localData
+        ),
+        {
+          ...localData,
+          pendingSync: false
+        }
+      )
+      : merge(cloud);
   }
 
 
   // ----------------------------------------------------------
   // CASE 3
-  // Both have data
-  //
-  // Cloud is preferred for an existing ID.
-  // Local-only records are preserved and uploaded.
+  // Both have data. Cloud is authoritative during a normal refresh.
+  // Offline changes use the pendingSync branch above.
   // ----------------------------------------------------------
-
-  const mergeCollection =
-    (localList, cloudList) => {
-
-      const cloudMap =
-        mapById(cloudList);
-
-      const localMap =
-        mapById(localList);
-
-      const result = [];
-
-      // Cloud records first
-      for (const item of cloudList || []) {
-
-        result.push(item);
-      }
-
-      // Add local-only records
-      for (const item of localList || []) {
-
-        if (
-          item?.id &&
-          !cloudMap.has(item.id)
-        ) {
-          result.push(item);
-        }
-      }
-
-      return result;
-    };
-
 
   const merged = merge({
 
     ...localData,
 
     products:
-      mergeCollection(
-        localData.products,
-        cloud.products
-      ),
+      cloud.products,
 
     orders:
-      mergeCollection(
-        localData.orders,
-        cloud.orders
-      ),
+      cloud.orders,
 
     purchases:
-      mergeCollection(
-        localData.purchases,
-        cloud.purchases
-      ),
+      cloud.purchases,
 
     expenses:
-      mergeCollection(
-        localData.expenses,
-        cloud.expenses
-      ),
+      cloud.expenses,
 
     orderCounter:
       Math.max(
@@ -944,100 +905,6 @@ async function initialSync(localData) {
       cloud.settings ||
       localData.settings
   });
-
-
-  // Upload local-only records
-  const cloudProducts =
-    mapById(cloud.products);
-
-  const cloudOrders =
-    mapById(cloud.orders);
-
-  const cloudPurchases =
-    mapById(cloud.purchases);
-
-  const cloudExpenses =
-    mapById(cloud.expenses);
-
-
-  for (const p of localData.products || []) {
-
-    if (
-      p.id &&
-      !cloudProducts.has(p.id)
-    ) {
-
-      await apiRequest(
-        "/products",
-        {
-          method: "POST",
-          body: JSON.stringify(
-            productToApi(p)
-          )
-        }
-      );
-    }
-  }
-
-
-  for (const o of localData.orders || []) {
-
-    if (
-      o.id &&
-      !cloudOrders.has(o.id)
-    ) {
-
-      await apiRequest(
-        "/orders",
-        {
-          method: "POST",
-          body: JSON.stringify(
-            orderToApi(o)
-          )
-        }
-      );
-    }
-  }
-
-
-  for (const p of localData.purchases || []) {
-
-    if (
-      p.id &&
-      !cloudPurchases.has(p.id)
-    ) {
-
-      await apiRequest(
-        "/purchases",
-        {
-          method: "POST",
-          body: JSON.stringify(
-            purchaseToApi(p)
-          )
-        }
-      );
-    }
-  }
-
-
-  for (const e of localData.expenses || []) {
-
-    if (
-      e.id &&
-      !cloudExpenses.has(e.id)
-    ) {
-
-      await apiRequest(
-        "/expenses",
-        {
-          method: "POST",
-          body: JSON.stringify(
-            expenseToApi(e)
-          )
-        }
-      );
-    }
-  }
 
 
   // Settings: cloud is authoritative when it exists.
