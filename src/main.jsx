@@ -1401,7 +1401,14 @@ function App() {
     const current =
       dataRef.current;
 
-    if (!current) return;
+    if (
+      !current ||
+      syncInFlight.current
+    ) {
+      return;
+    }
+
+    syncInFlight.current = true;
 
     try {
       const latest =
@@ -1417,6 +1424,8 @@ function App() {
     } catch (error) {
       console.warn("Background data refresh failed:", error);
       setSyncState("offline");
+    } finally {
+      syncInFlight.current = false;
     }
   };
 
@@ -1441,6 +1450,10 @@ function App() {
 
   const dataRef =
     useRef(null);
+
+
+  const syncInFlight =
+    useRef(false);
 
 
   // ----------------------------------------------------------
@@ -1586,6 +1599,9 @@ function App() {
       merge(empty);
 
 
+    syncInFlight.current = true;
+
+
     // Update UI immediately.
     dataRef.current =
       next;
@@ -1615,6 +1631,8 @@ function App() {
         "connected"
       );
 
+      return true;
+
 
     } catch (error) {
 
@@ -1628,6 +1646,10 @@ function App() {
       setSyncState(
         "offline"
       );
+
+      return false;
+    } finally {
+      syncInFlight.current = false;
     }
   };
 
@@ -2774,7 +2796,8 @@ function Products({
     // Remove the product itself and any stock purchase records
     // tied to that product so its cost drops out of total expenses.
 
-    await update({
+    const synced =
+      await update({
 
       ...data,
 
@@ -2789,7 +2812,14 @@ function Products({
           x =>
             x.productId !== p.id
         )
-    });
+      });
+
+    if (!synced) {
+      toast(
+        "Product removed locally, but cloud sync failed. Try Refresh when online."
+      );
+      return;
+    }
 
     addActivity(
       "product",
