@@ -5,9 +5,10 @@ This version is intentionally small and practical.
 ## Main features
 - Mobile-first installable PWA (Android, iPhone, tablet, PC)
 - Dashboard
+- Separate General Expenses page with categories, filters, summaries, edit and delete
 - Products / stock
 - Orders
-- Add and **Edit** orders
+- Add, **Edit and Delete** orders
 - Search orders by customer, phone, location, product
 - Order status: Pending / Dispatched / Delivered / Cancelled
 - Payment status: Unpaid / Partial / Paid
