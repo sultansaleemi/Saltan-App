@@ -32,6 +32,7 @@ const empty = {
   purchases: [],
   expenses: [],
   activities: [],
+  pendingSync: false,
   orderCounter: 0,
 
   settings: {
@@ -84,6 +85,7 @@ const merge = (d) => ({
   ),
   expenses: d?.expenses || [],
   activities: d?.activities || [],
+  pendingSync: Boolean(d?.pendingSync),
 
   settings: {
     ...empty.settings,
@@ -785,6 +787,19 @@ async function initialSync(localData) {
 
   const cloud =
     await downloadCloudData();
+
+
+  if (localData.pendingSync) {
+    await syncChanges(
+      cloud,
+      localData
+    );
+
+    return {
+      ...localData,
+      pendingSync: false
+    };
+  }
 
 
   const cloudHasRecords =
@@ -1590,8 +1605,10 @@ function App() {
     nextData
   ) => {
 
-    const next =
-      merge(nextData);
+    const next = {
+      ...merge(nextData),
+      pendingSync: false
+    };
 
 
     const previous =
@@ -1620,9 +1637,14 @@ function App() {
         "syncing"
       );
 
+      const syncPrevious =
+        previous.pendingSync
+          ? await downloadCloudData()
+          : previous;
+
 
       await syncChanges(
-        previous,
+        syncPrevious,
         next
       );
 
@@ -1645,6 +1667,18 @@ function App() {
       // Local changes remain saved.
       setSyncState(
         "offline"
+      );
+
+      const pending = {
+        ...next,
+        pendingSync: true
+      };
+
+      dataRef.current = pending;
+      setData(pending);
+      await dbPut(pending);
+      showToast(
+        "Saved on device. Cloud sync will retry when online."
       );
 
       return false;
