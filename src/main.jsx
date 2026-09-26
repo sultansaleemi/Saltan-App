@@ -74,7 +74,14 @@ const merge = (d) => ({
 
   products: d?.products || [],
   orders: d?.orders || [],
-  purchases: d?.purchases || [],
+  purchases: (d?.purchases || []).filter(
+    purchase =>
+      !purchase.productId ||
+      (d?.products || []).some(
+        product =>
+          product.id === purchase.productId
+      )
+  ),
   expenses: d?.expenses || [],
   activities: d?.activities || [],
 
@@ -593,6 +600,45 @@ async function downloadCloudData() {
       .map(purchaseFromApi);
 
 
+  const productIds =
+    new Set(
+      products.map(
+        product =>
+          product.id
+      )
+    );
+
+
+  const orphanPurchases =
+    purchases.filter(
+      purchase =>
+        purchase.productId &&
+        !productIds.has(
+          purchase.productId
+        )
+    );
+
+
+  for (const purchase of orphanPurchases) {
+    await apiRequest(
+      `/purchases/${encodeURIComponent(purchase.id)}`,
+      {
+        method: "DELETE"
+      }
+    );
+  }
+
+
+  const validPurchases =
+    purchases.filter(
+      purchase =>
+        !purchase.productId ||
+        productIds.has(
+          purchase.productId
+        )
+    );
+
+
   const expenses =
     (expensesResponse.data || [])
       .map(expenseFromApi);
@@ -618,7 +664,7 @@ async function downloadCloudData() {
   return {
     products,
     orders,
-    purchases,
+    purchases: validPurchases,
     expenses,
 
     orderCounter:
