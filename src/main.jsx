@@ -1576,6 +1576,12 @@ function App() {
       }
     };
 
+
+    const refreshWhenOnline = () => {
+      updateApp();
+      refreshData();
+    };
+
     const interval = setInterval(
       refreshWhenVisible,
       60000
@@ -1586,11 +1592,20 @@ function App() {
       refreshWhenVisible
     );
 
+    window.addEventListener(
+      "online",
+      refreshWhenOnline
+    );
+
     return () => {
       clearInterval(interval);
       document.removeEventListener(
         "visibilitychange",
         refreshWhenVisible
+      );
+      window.removeEventListener(
+        "online",
+        refreshWhenOnline
       );
     };
   }, []);
