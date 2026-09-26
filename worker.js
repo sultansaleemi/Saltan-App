@@ -8,13 +8,16 @@ export default {
 
     if (!env.ASSETS) {
       return new Response(
-        "ASSETS binding is missing. This usually happens on preview deployments. Try a full `wrangler deploy` or update Wrangler.",
-        { status: 500, headers: { "Content-Type": "text/plain" } }
+        "ASSETS binding is missing.",
+        {
+          status: 500,
+          headers: { "Content-Type": "text/plain" }
+        }
       );
     }
 
     return env.ASSETS.fetch(request);
-  },
+  }
 };
 
 async function handleApi(request, env, url) {
@@ -25,9 +28,11 @@ async function handleApi(request, env, url) {
   const id = parts[1];
 
   try {
-    // -------------------------
-    // HEALTH CHECK
-    // -------------------------
+
+    // =========================================================
+    // HEALTH
+    // =========================================================
+
     if (resource === "health" && request.method === "GET") {
       await env.DB.prepare("SELECT 1").first();
 
@@ -39,10 +44,13 @@ async function handleApi(request, env, url) {
       });
     }
 
-    // -------------------------
+
+    // =========================================================
     // PRODUCTS
-    // -------------------------
+    // =========================================================
+
     if (resource === "products") {
+
       if (request.method === "GET") {
         const { results } = await env.DB
           .prepare(`
@@ -61,12 +69,11 @@ async function handleApi(request, env, url) {
       if (request.method === "POST") {
         const body = await readJson(request);
 
-        const id = body.id || crypto.randomUUID();
+        const productId = body.id || crypto.randomUUID();
         const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
-          INSERT INTO products
-          (
+          INSERT INTO products (
             id,
             name,
             cost,
@@ -83,7 +90,7 @@ async function handleApi(request, env, url) {
             stock = excluded.stock,
             updated_at = excluded.updated_at
         `).bind(
-          id,
+          productId,
           String(body.name || ""),
           number(body.cost),
           Math.max(0, Math.trunc(number(body.stock))),
@@ -93,7 +100,7 @@ async function handleApi(request, env, url) {
 
         return json({
           ok: true,
-          id
+          id: productId
         }, 201);
       }
 
@@ -109,11 +116,15 @@ async function handleApi(request, env, url) {
       }
     }
 
-    // -------------------------
+
+    // =========================================================
     // ORDERS
-    // -------------------------
+    // =========================================================
+
     if (resource === "orders") {
+
       if (request.method === "GET") {
+
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -129,14 +140,14 @@ async function handleApi(request, env, url) {
       }
 
       if (request.method === "POST") {
+
         const body = await readJson(request);
 
-        const id = body.id || crypto.randomUUID();
+        const orderId = body.id || crypto.randomUUID();
         const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
-          INSERT INTO orders
-          (
+          INSERT INTO orders (
             id,
             order_no,
             product_id,
@@ -150,10 +161,11 @@ async function handleApi(request, env, url) {
             customer_name,
             customer_phone,
             customer_location,
+            payment_status,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
           ON CONFLICT(id)
           DO UPDATE SET
@@ -169,9 +181,10 @@ async function handleApi(request, env, url) {
             customer_name = excluded.customer_name,
             customer_phone = excluded.customer_phone,
             customer_location = excluded.customer_location,
+            payment_status = excluded.payment_status,
             updated_at = excluded.updated_at
         `).bind(
-          id,
+          orderId,
           Math.trunc(number(body.orderNo)),
           body.productId || null,
           String(body.productName || ""),
@@ -186,17 +199,19 @@ async function handleApi(request, env, url) {
           body.customerName || null,
           body.customerPhone || null,
           body.customerLocation || null,
+          body.paymentStatus || body.payment || "Unpaid",
           timestamp,
           timestamp
         ).run();
 
         return json({
           ok: true,
-          id
+          id: orderId
         }, 201);
       }
 
       if (request.method === "DELETE" && id) {
+
         await env.DB.prepare(`
           DELETE FROM orders
           WHERE id = ?
@@ -208,11 +223,15 @@ async function handleApi(request, env, url) {
       }
     }
 
-    // -------------------------
+
+    // =========================================================
     // PURCHASES
-    // -------------------------
+    // =========================================================
+
     if (resource === "purchases") {
+
       if (request.method === "GET") {
+
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -228,14 +247,14 @@ async function handleApi(request, env, url) {
       }
 
       if (request.method === "POST") {
+
         const body = await readJson(request);
 
-        const id = body.id || crypto.randomUUID();
+        const purchaseId = body.id || crypto.randomUUID();
         const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
-          INSERT INTO purchases
-          (
+          INSERT INTO purchases (
             id,
             product_id,
             product_name,
@@ -256,9 +275,9 @@ async function handleApi(request, env, url) {
             total = excluded.total,
             purchase_date = excluded.purchase_date
         `).bind(
-          id,
+          purchaseId,
           body.productId || null,
-          body.productName || "",
+          String(body.productName || ""),
           Math.trunc(number(body.quantity)),
           number(body.costEach),
           number(body.total),
@@ -270,16 +289,32 @@ async function handleApi(request, env, url) {
 
         return json({
           ok: true,
-          id
+          id: purchaseId
         }, 201);
+      }
+
+      if (request.method === "DELETE" && id) {
+
+        await env.DB.prepare(`
+          DELETE FROM purchases
+          WHERE id = ?
+        `).bind(id).run();
+
+        return json({
+          ok: true
+        });
       }
     }
 
-    // -------------------------
+
+    // =========================================================
     // EXPENSES
-    // -------------------------
+    // =========================================================
+
     if (resource === "expenses") {
+
       if (request.method === "GET") {
+
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -295,24 +330,26 @@ async function handleApi(request, env, url) {
       }
 
       if (request.method === "POST") {
+
         const body = await readJson(request);
 
-        const id = body.id || crypto.randomUUID();
+        const expenseId = body.id || crypto.randomUUID();
         const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
-          INSERT INTO expenses
-          (
+          INSERT INTO expenses (
             id,
             title,
             amount,
             category,
             expense_date,
             notes,
+            description,
+            payment_method,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
           ON CONFLICT(id)
           DO UPDATE SET
@@ -321,27 +358,32 @@ async function handleApi(request, env, url) {
             category = excluded.category,
             expense_date = excluded.expense_date,
             notes = excluded.notes,
+            description = excluded.description,
+            payment_method = excluded.payment_method,
             updated_at = excluded.updated_at
         `).bind(
-          id,
-          body.title || "",
+          expenseId,
+          String(body.title || body.description || ""),
           number(body.amount),
-          body.category || null,
+          body.category || "Other",
           body.expenseDate ||
             body.date ||
             timestamp.slice(0, 10),
-          body.notes || null,
+          body.notes || "",
+          body.description || body.title || "",
+          body.paymentMethod || "Cash",
           timestamp,
           timestamp
         ).run();
 
         return json({
           ok: true,
-          id
+          id: expenseId
         }, 201);
       }
 
       if (request.method === "DELETE" && id) {
+
         await env.DB.prepare(`
           DELETE FROM expenses
           WHERE id = ?
@@ -353,18 +395,92 @@ async function handleApi(request, env, url) {
       }
     }
 
+
+    // =========================================================
+    // SETTINGS
+    // =========================================================
+
+    if (resource === "settings") {
+
+      if (request.method === "GET") {
+
+        const row = await env.DB
+          .prepare(`
+            SELECT *
+            FROM settings
+            WHERE id = 'main'
+            LIMIT 1
+          `)
+          .first();
+
+        return json({
+          ok: true,
+          data: row || null
+        });
+      }
+
+      if (request.method === "POST") {
+
+        const body = await readJson(request);
+
+        const timestamp = new Date().toISOString();
+
+        await env.DB.prepare(`
+          INSERT INTO settings (
+            id,
+            company_name,
+            phone,
+            whatsapp,
+            address,
+            email,
+            logo,
+            currency,
+            updated_at
+          )
+          VALUES ('main', ?, ?, ?, ?, ?, ?, ?, ?)
+
+          ON CONFLICT(id)
+          DO UPDATE SET
+            company_name = excluded.company_name,
+            phone = excluded.phone,
+            whatsapp = excluded.whatsapp,
+            address = excluded.address,
+            email = excluded.email,
+            logo = excluded.logo,
+            currency = excluded.currency,
+            updated_at = excluded.updated_at
+        `).bind(
+          body.companyName || "",
+          body.phone || "",
+          body.whatsapp || "",
+          body.address || "",
+          body.email || "",
+          body.logo || "",
+          body.currency || "AED",
+          timestamp
+        ).run();
+
+        return json({
+          ok: true
+        }, 201);
+      }
+    }
+
+
     return json({
       ok: false,
       error: "API route not found"
     }, 404);
 
   } catch (error) {
+
     return json({
       ok: false,
       error: error.message
     }, 500);
   }
 }
+
 
 async function readJson(request) {
   try {
@@ -374,17 +490,23 @@ async function readJson(request) {
   }
 }
 
+
 function number(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
+
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store"
+
+  return new Response(
+    JSON.stringify(data),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store"
+      }
     }
-  });
+  );
 }

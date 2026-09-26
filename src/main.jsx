@@ -1,13 +1,30 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState
+} from "react";
+
 import { createRoot } from "react-dom/client";
+
 import "./styles.css";
+
+
+// ============================================================
+// CONFIGURATION
+// ============================================================
+
+const API = "/api";
 
 const DB_NAME = "SaleTrackerDB";
 const DB_VERSION = 2;
 const STORE = "app";
+
 const OLD_KEY = "saleTrackerReact_v1";
 
-const API_BASE = "/api";
+
+// ============================================================
+// DEFAULT DATA
+// ============================================================
 
 const empty = {
   products: [],
@@ -15,6 +32,7 @@ const empty = {
   purchases: [],
   expenses: [],
   orderCounter: 0,
+
   settings: {
     companyName: "",
     phone: "",
@@ -26,98 +44,54 @@ const empty = {
   }
 };
 
-const uid = () =>
-  Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-const today = () => new Date().toISOString().slice(0, 10);
+// ============================================================
+// BASIC HELPERS
+// ============================================================
+
+const uid = () =>
+  Date.now().toString(36) +
+  Math.random().toString(36).slice(2, 8);
+
+
+const today = () =>
+  new Date().toISOString().slice(0, 10);
+
 
 const money = (n) =>
   "AED " +
-  (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, {
+  (
+    Math.round((Number(n) || 0) * 100) / 100
+  ).toLocaleString(undefined, {
     maximumFractionDigits: 2
   });
 
+
 const merge = (d) => ({
   ...empty,
-  ...d,
+  ...(d || {}),
+
   products: d?.products || [],
   orders: d?.orders || [],
   purchases: d?.purchases || [],
   expenses: d?.expenses || [],
+
   settings: {
     ...empty.settings,
     ...(d?.settings || {})
   }
 });
 
-/* =====================================================
-   INDEXEDDB
-===================================================== */
 
-function openDB() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, DB_VERSION);
+const number = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
 
-    r.onupgradeneeded = () => {
-      if (!r.result.objectStoreNames.contains(STORE)) {
-        r.result.createObjectStore(STORE);
-      }
-    };
 
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
+const monthMatch = (d) => {
+  if (!d) return false;
 
-async function dbGet() {
-  const db = await openDB();
-
-  return new Promise((res, rej) => {
-    const r = db
-      .transaction(STORE)
-      .objectStore(STORE)
-      .get("data");
-
-    r.onsuccess = () => res(r.result || null);
-    r.onerror = () => rej(r.error);
-  });
-}
-
-async function dbPut(data) {
-  const db = await openDB();
-
-  return new Promise((res, rej) => {
-    const r = db
-      .transaction(STORE, "readwrite")
-      .objectStore(STORE)
-      .put(data, "data");
-
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
-  });
-}
-
-/* =====================================================
-   BUSINESS CALCULATIONS
-===================================================== */
-
-function revenue(o) {
-  return o.status === "Cancelled" ? 0 : Number(o.price) || 0;
-}
-
-function orderExpense(o) {
-  return (
-    (Number(o.delivery) || 0) +
-    (Number(o.other) || 0) +
-    (!o.productId ? Number(o.cost) || 0 : 0)
-  );
-}
-
-function profit(o) {
-  return revenue(o) - orderExpense(o);
-}
-
-function monthMatch(d) {
   const x = new Date(d);
   const n = new Date();
 
@@ -125,527 +99,1345 @@ function monthMatch(d) {
     x.getFullYear() === n.getFullYear() &&
     x.getMonth() === n.getMonth()
   );
-}
+};
 
-/* =====================================================
-   CLOUDFLARE API
-===================================================== */
 
-async function apiGet(resource) {
-  const response = await fetch(`${API_BASE}/${resource}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json"
-    },
-    cache: "no-store"
-  });
+// ============================================================
+// INDEXEDDB
+// ============================================================
 
-  if (!response.ok) {
-    throw new Error(`Cloud GET failed: ${response.status}`);
-  }
+function openDB() {
+  return new Promise((resolve, reject) => {
 
-  const result = await response.json();
+    const request =
+      indexedDB.open(DB_NAME, DB_VERSION);
 
-  if (!result.ok) {
-    throw new Error(result.error || "Cloud GET failed");
-  }
+    request.onupgradeneeded = () => {
 
-  return result.data || [];
-}
-
-async function apiSave(resource, item) {
-  const response = await fetch(`${API_BASE}/${resource}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify(item)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Cloud save failed: ${response.status}`);
-  }
-
-  const result = await response.json();
-
-  if (!result.ok) {
-    throw new Error(result.error || "Cloud save failed");
-  }
-
-  return result;
-}
-
-async function apiDelete(resource, id) {
-  const response = await fetch(
-    `${API_BASE}/${resource}/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-      headers: {
-        Accept: "application/json"
+      if (
+        !request.result.objectStoreNames.contains(STORE)
+      ) {
+        request.result.createObjectStore(STORE);
       }
+    };
+
+    request.onsuccess = () =>
+      resolve(request.result);
+
+    request.onerror = () =>
+      reject(request.error);
+  });
+}
+
+
+async function dbGet() {
+
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+
+    const request =
+      db
+        .transaction(STORE)
+        .objectStore(STORE)
+        .get("data");
+
+    request.onsuccess = () =>
+      resolve(request.result || null);
+
+    request.onerror = () =>
+      reject(request.error);
+  });
+}
+
+
+async function dbPut(data) {
+
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+
+    const request =
+      db
+        .transaction(STORE, "readwrite")
+        .objectStore(STORE)
+        .put(data, "data");
+
+    request.onsuccess = () =>
+      resolve();
+
+    request.onerror = () =>
+      reject(request.error);
+  });
+}
+
+
+// ============================================================
+// API
+// ============================================================
+
+async function apiRequest(path, options = {}) {
+
+  const response = await fetch(
+    `${API}${path}`,
+    {
+      ...options,
+
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+
+      cache: "no-store"
     }
   );
 
-  if (!response.ok) {
-    throw new Error(`Cloud delete failed: ${response.status}`);
+
+  const json =
+    await response
+      .json()
+      .catch(() => ({}));
+
+
+  if (
+    !response.ok ||
+    json.ok === false
+  ) {
+
+    throw new Error(
+      json.error ||
+      `API error ${response.status}`
+    );
   }
 
-  const result = await response.json();
 
-  if (!result.ok) {
-    throw new Error(result.error || "Cloud delete failed");
-  }
-
-  return result;
+  return json;
 }
 
-/* =====================================================
-   REACT → CLOUDFLARE
-===================================================== */
 
-function productToCloud(p) {
+// ============================================================
+// LOCAL → API MAPPERS
+// ============================================================
+
+function productToApi(p) {
+
   return {
     id: p.id,
+
     name: p.name || "",
-    cost: Number(p.cost) || 0,
-    stock: Math.max(0, Math.trunc(Number(p.stock) || 0))
+
+    cost: number(p.cost),
+
+    stock: Math.max(
+      0,
+      Math.trunc(number(p.stock))
+    )
   };
 }
 
-function orderToCloud(o) {
+
+function orderToApi(o) {
+
   return {
     id: o.id,
-    orderNo: Number(o.orderNo) || 0,
-    productId: o.productId || null,
-    productName: o.productName || "",
-    price: Number(o.price) || 0,
-    cost: Number(o.cost) || 0,
-    deliveryCost: Number(o.delivery) || 0,
-    otherExpense: Number(o.other) || 0,
-    status: o.status || "Pending",
-    orderDate: o.date || today(),
-    customerName: o.customerName || null,
-    customerPhone: o.phone || null,
-    customerLocation: o.location || null
+
+    orderNo: Math.trunc(
+      number(o.orderNo)
+    ),
+
+    productId:
+      o.productId || null,
+
+    productName:
+      o.productName || "",
+
+    price:
+      number(o.price),
+
+    cost:
+      number(o.cost),
+
+    deliveryCost:
+      number(o.delivery),
+
+    otherExpense:
+      number(o.other),
+
+    status:
+      o.status || "Pending",
+
+    orderDate:
+      o.date || today(),
+
+    customerName:
+      o.customerName || "",
+
+    customerPhone:
+      o.phone || "",
+
+    customerLocation:
+      o.location || "",
+
+    paymentStatus:
+      o.payment || "Unpaid"
   };
 }
 
-function purchaseToCloud(p) {
+
+function purchaseToApi(p) {
+
   return {
     id: p.id,
-    productId: p.productId || null,
-    productName: p.name || p.productName || "",
-    quantity: Math.trunc(Number(p.qty ?? p.quantity) || 0),
-    costEach: Number(p.costEach) || 0,
-    total: Number(p.total) || 0,
-    purchaseDate: p.date || p.purchaseDate || today()
+
+    productId:
+      p.productId || null,
+
+    productName:
+      p.productName ||
+      p.name ||
+      "",
+
+    quantity:
+      Math.trunc(
+        number(
+          p.quantity ??
+          p.qty
+        )
+      ),
+
+    costEach:
+      number(p.costEach),
+
+    total:
+      number(p.total),
+
+    purchaseDate:
+      p.purchaseDate ||
+      p.date ||
+      today()
   };
 }
 
-function expenseToCloud(e) {
+
+function expenseToApi(e) {
+
   return {
     id: e.id,
-    title: e.description || e.title || "",
-    amount: Number(e.amount) || 0,
-    category: e.category || null,
-    expenseDate: e.date || e.expenseDate || today(),
-    notes: e.paymentMethod || e.notes || null
+
+    title:
+      e.description ||
+      e.title ||
+      "",
+
+    description:
+      e.description ||
+      e.title ||
+      "",
+
+    amount:
+      number(e.amount),
+
+    category:
+      e.category ||
+      "Other",
+
+    expenseDate:
+      e.date ||
+      today(),
+
+    notes:
+      e.notes ||
+      "",
+
+    paymentMethod:
+      e.paymentMethod ||
+      "Cash"
   };
 }
 
-/* =====================================================
-   CLOUDFLARE → REACT
-===================================================== */
 
-function productFromCloud(p) {
+function settingsToApi(s) {
+
+  return {
+    companyName:
+      s.companyName || "",
+
+    phone:
+      s.phone || "",
+
+    whatsapp:
+      s.whatsapp || "",
+
+    address:
+      s.address || "",
+
+    email:
+      s.email || "",
+
+    logo:
+      s.logo || "",
+
+    currency:
+      s.currency || "AED"
+  };
+}
+
+
+// ============================================================
+// API → LOCAL MAPPERS
+// ============================================================
+
+function productFromApi(p) {
+
   return {
     id: p.id,
-    name: p.name || "",
-    cost: Number(p.cost) || 0,
-    stock: Number(p.stock) || 0
+
+    name:
+      p.name || "",
+
+    cost:
+      number(p.cost),
+
+    stock:
+      number(p.stock)
   };
 }
 
-function orderFromCloud(o) {
+
+function orderFromApi(o) {
+
   return {
     id: o.id,
-    orderNo: Number(o.order_no) || 0,
-    productId: o.product_id || "",
-    productName: o.product_name || "",
-    price: Number(o.price) || 0,
-    cost: Number(o.cost) || 0,
-    delivery: Number(o.delivery_cost) || 0,
-    other: Number(o.other_expense) || 0,
-    status: o.status || "Pending",
-    date: o.order_date || today(),
-    customerName: o.customer_name || "",
-    phone: o.customer_phone || "",
-    location: o.customer_location || "",
-    payment: o.payment || "Unpaid"
+
+    orderNo:
+      number(o.order_no),
+
+    productId:
+      o.product_id || "",
+
+    productName:
+      o.product_name || "",
+
+    price:
+      number(o.price),
+
+    cost:
+      number(o.cost),
+
+    delivery:
+      number(o.delivery_cost),
+
+    other:
+      number(o.other_expense),
+
+    status:
+      o.status || "Pending",
+
+    date:
+      o.order_date || today(),
+
+    payment:
+      o.payment_status ||
+      "Unpaid",
+
+    customerName:
+      o.customer_name || "",
+
+    phone:
+      o.customer_phone || "",
+
+    location:
+      o.customer_location || ""
   };
 }
 
-function purchaseFromCloud(p) {
+
+function purchaseFromApi(p) {
+
   return {
     id: p.id,
-    productId: p.product_id || "",
-    name: p.product_name || "",
-    qty: Number(p.quantity) || 0,
-    costEach: Number(p.cost_each) || 0,
-    total: Number(p.total) || 0,
-    date: p.purchase_date || today()
+
+    productId:
+      p.product_id || "",
+
+    productName:
+      p.product_name || "",
+
+    name:
+      p.product_name || "",
+
+    quantity:
+      number(p.quantity),
+
+    qty:
+      number(p.quantity),
+
+    costEach:
+      number(p.cost_each),
+
+    total:
+      number(p.total),
+
+    purchaseDate:
+      p.purchase_date || today(),
+
+    date:
+      p.purchase_date || today()
   };
 }
 
-function expenseFromCloud(e) {
+
+function expenseFromApi(e) {
+
   return {
     id: e.id,
-    date: e.expense_date || today(),
-    category: e.category || "Other",
-    description: e.title || "",
-    amount: Number(e.amount) || 0,
-    paymentMethod: e.notes || "Cash"
+
+    date:
+      e.expense_date || today(),
+
+    category:
+      e.category || "Other",
+
+    description:
+      e.description ||
+      e.title ||
+      "",
+
+    amount:
+      number(e.amount),
+
+    paymentMethod:
+      e.payment_method ||
+      "Cash",
+
+    notes:
+      e.notes || "",
+
+    createdAt:
+      e.created_at || ""
   };
 }
 
-/* =====================================================
-   MERGE
-===================================================== */
 
-function mergeRecords(localItems, cloudItems, fromCloud) {
-  const map = new Map();
+function settingsFromApi(s) {
 
-  for (const item of localItems || []) {
-    if (item?.id) {
-      map.set(item.id, item);
-    }
+  if (!s) {
+    return null;
   }
 
-  for (const item of cloudItems || []) {
-    const converted = fromCloud(item);
+  return {
+    companyName:
+      s.company_name || "",
 
-    if (!converted?.id) continue;
+    phone:
+      s.phone || "",
 
-    /*
-      Local data is kept when the same ID exists.
-      Cloud-only records are added.
-    */
-    if (!map.has(converted.id)) {
-      map.set(converted.id, converted);
-    }
-  }
+    whatsapp:
+      s.whatsapp || "",
 
-  return [...map.values()];
+    address:
+      s.address || "",
+
+    email:
+      s.email || "",
+
+    logo:
+      s.logo || "",
+
+    currency:
+      s.currency || "AED"
+  };
 }
 
-/* =====================================================
-   FIRST / STARTUP CLOUD SYNC
-===================================================== */
 
-async function syncCloud(localData) {
-  try {
-    console.log("☁️ Connecting to Cloudflare D1...");
+// ============================================================
+// CLOUD DOWNLOAD
+// ============================================================
 
-    const [
-      cloudProducts,
-      cloudOrders,
-      cloudPurchases,
-      cloudExpenses
-    ] = await Promise.all([
-      apiGet("products"),
-      apiGet("orders"),
-      apiGet("purchases"),
-      apiGet("expenses")
-    ]);
+async function downloadCloudData() {
 
-    const merged = merge({
+  const [
+    productsResponse,
+    ordersResponse,
+    purchasesResponse,
+    expensesResponse,
+    settingsResponse
+  ] = await Promise.all([
+
+    apiRequest("/products"),
+
+    apiRequest("/orders"),
+
+    apiRequest("/purchases"),
+
+    apiRequest("/expenses"),
+
+    apiRequest("/settings")
+  ]);
+
+
+  const products =
+    (productsResponse.data || [])
+      .map(productFromApi);
+
+
+  const orders =
+    (ordersResponse.data || [])
+      .map(orderFromApi);
+
+
+  const purchases =
+    (purchasesResponse.data || [])
+      .map(purchaseFromApi);
+
+
+  const expenses =
+    (expensesResponse.data || [])
+      .map(expenseFromApi);
+
+
+  const cloudSettings =
+    settingsFromApi(
+      settingsResponse.data
+    );
+
+
+  const maxOrderNo =
+    orders.reduce(
+      (max, o) =>
+        Math.max(
+          max,
+          number(o.orderNo)
+        ),
+      0
+    );
+
+
+  return {
+    products,
+    orders,
+    purchases,
+    expenses,
+
+    orderCounter:
+      maxOrderNo,
+
+    settings:
+      cloudSettings
+  };
+}
+
+
+// ============================================================
+// COLLECTION HELPERS
+// ============================================================
+
+function hasRecords(data) {
+
+  return Boolean(
+    data?.products?.length ||
+    data?.orders?.length ||
+    data?.purchases?.length ||
+    data?.expenses?.length
+  );
+}
+
+
+function mapById(list) {
+
+  return new Map(
+    (list || [])
+      .filter(x => x?.id)
+      .map(x => [x.id, x])
+  );
+}
+
+
+// ============================================================
+// UPLOAD ALL LOCAL DATA
+// ============================================================
+
+async function uploadAllData(data) {
+
+  for (const p of data.products || []) {
+
+    await apiRequest(
+      "/products",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          productToApi(p)
+        )
+      }
+    );
+  }
+
+
+  for (const o of data.orders || []) {
+
+    await apiRequest(
+      "/orders",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          orderToApi(o)
+        )
+      }
+    );
+  }
+
+
+  for (const p of data.purchases || []) {
+
+    await apiRequest(
+      "/purchases",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          purchaseToApi(p)
+        )
+      }
+    );
+  }
+
+
+  for (const e of data.expenses || []) {
+
+    await apiRequest(
+      "/expenses",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          expenseToApi(e)
+        )
+      }
+    );
+  }
+
+
+  await apiRequest(
+    "/settings",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        settingsToApi(
+          data.settings
+        )
+      )
+    }
+  );
+}
+
+
+// ============================================================
+// INITIAL CLOUD SYNC
+// ============================================================
+
+async function initialSync(localData) {
+
+  const cloud =
+    await downloadCloudData();
+
+
+  const cloudHasRecords =
+    hasRecords(cloud);
+
+
+  const localHasRecords =
+    hasRecords(localData);
+
+
+  // ----------------------------------------------------------
+  // CASE 1
+  // Local is empty, cloud has data
+  // ----------------------------------------------------------
+
+  if (
+    !localHasRecords &&
+    cloudHasRecords
+  ) {
+
+    return merge({
       ...localData,
 
-      products: mergeRecords(
-        localData.products,
-        cloudProducts,
-        productFromCloud
-      ),
+      products:
+        cloud.products,
 
-      orders: mergeRecords(
-        localData.orders,
-        cloudOrders,
-        orderFromCloud
-      ),
+      orders:
+        cloud.orders,
 
-      purchases: mergeRecords(
-        localData.purchases,
-        cloudPurchases,
-        purchaseFromCloud
-      ),
+      purchases:
+        cloud.purchases,
 
-      expenses: mergeRecords(
-        localData.expenses,
-        cloudExpenses,
-        expenseFromCloud
-      )
+      expenses:
+        cloud.expenses,
+
+      orderCounter:
+        Math.max(
+          localData.orderCounter || 0,
+          cloud.orderCounter || 0
+        ),
+
+      settings:
+        cloud.settings ||
+        localData.settings
     });
+  }
 
-    /*
-      Upload records that exist locally but not in D1.
-    */
 
-    const cloudIds = {
-      products: new Set(cloudProducts.map((x) => x.id)),
-      orders: new Set(cloudOrders.map((x) => x.id)),
-      purchases: new Set(cloudPurchases.map((x) => x.id)),
-      expenses: new Set(cloudExpenses.map((x) => x.id))
-    };
+  // ----------------------------------------------------------
+  // CASE 2
+  // Local has data, cloud is empty
+  // ----------------------------------------------------------
 
-    await Promise.all([
-      ...merged.products
-        .filter((x) => !cloudIds.products.has(x.id))
-        .map((x) => apiSave("products", productToCloud(x))),
+  if (
+    localHasRecords &&
+    !cloudHasRecords
+  ) {
 
-      ...merged.orders
-        .filter((x) => !cloudIds.orders.has(x.id))
-        .map((x) => apiSave("orders", orderToCloud(x))),
-
-      ...merged.purchases
-        .filter((x) => !cloudIds.purchases.has(x.id))
-        .map((x) => apiSave("purchases", purchaseToCloud(x))),
-
-      ...merged.expenses
-        .filter((x) => !cloudIds.expenses.has(x.id))
-        .map((x) => apiSave("expenses", expenseToCloud(x)))
-    ]);
-
-    await dbPut(merged);
-
-    console.log("☁️ Initial cloud sync complete");
-
-    return merged;
-  } catch (error) {
-    console.warn(
-      "☁️ Cloud sync unavailable. Continuing with local data.",
-      error
+    await uploadAllData(
+      localData
     );
 
     return localData;
   }
+
+
+  // ----------------------------------------------------------
+  // CASE 3
+  // Both have data
+  //
+  // Cloud is preferred for an existing ID.
+  // Local-only records are preserved and uploaded.
+  // ----------------------------------------------------------
+
+  const mergeCollection =
+    (localList, cloudList) => {
+
+      const cloudMap =
+        mapById(cloudList);
+
+      const localMap =
+        mapById(localList);
+
+      const result = [];
+
+      // Cloud records first
+      for (const item of cloudList || []) {
+
+        result.push(item);
+      }
+
+      // Add local-only records
+      for (const item of localList || []) {
+
+        if (
+          item?.id &&
+          !cloudMap.has(item.id)
+        ) {
+          result.push(item);
+        }
+      }
+
+      return result;
+    };
+
+
+  const merged = merge({
+
+    ...localData,
+
+    products:
+      mergeCollection(
+        localData.products,
+        cloud.products
+      ),
+
+    orders:
+      mergeCollection(
+        localData.orders,
+        cloud.orders
+      ),
+
+    purchases:
+      mergeCollection(
+        localData.purchases,
+        cloud.purchases
+      ),
+
+    expenses:
+      mergeCollection(
+        localData.expenses,
+        cloud.expenses
+      ),
+
+    orderCounter:
+      Math.max(
+        localData.orderCounter || 0,
+        cloud.orderCounter || 0
+      ),
+
+    settings:
+      cloud.settings ||
+      localData.settings
+  });
+
+
+  // Upload local-only records
+  const cloudProducts =
+    mapById(cloud.products);
+
+  const cloudOrders =
+    mapById(cloud.orders);
+
+  const cloudPurchases =
+    mapById(cloud.purchases);
+
+  const cloudExpenses =
+    mapById(cloud.expenses);
+
+
+  for (const p of localData.products || []) {
+
+    if (
+      p.id &&
+      !cloudProducts.has(p.id)
+    ) {
+
+      await apiRequest(
+        "/products",
+        {
+          method: "POST",
+          body: JSON.stringify(
+            productToApi(p)
+          )
+        }
+      );
+    }
+  }
+
+
+  for (const o of localData.orders || []) {
+
+    if (
+      o.id &&
+      !cloudOrders.has(o.id)
+    ) {
+
+      await apiRequest(
+        "/orders",
+        {
+          method: "POST",
+          body: JSON.stringify(
+            orderToApi(o)
+          )
+        }
+      );
+    }
+  }
+
+
+  for (const p of localData.purchases || []) {
+
+    if (
+      p.id &&
+      !cloudPurchases.has(p.id)
+    ) {
+
+      await apiRequest(
+        "/purchases",
+        {
+          method: "POST",
+          body: JSON.stringify(
+            purchaseToApi(p)
+          )
+        }
+      );
+    }
+  }
+
+
+  for (const e of localData.expenses || []) {
+
+    if (
+      e.id &&
+      !cloudExpenses.has(e.id)
+    ) {
+
+      await apiRequest(
+        "/expenses",
+        {
+          method: "POST",
+          body: JSON.stringify(
+            expenseToApi(e)
+          )
+        }
+      );
+    }
+  }
+
+
+  // Settings: cloud is authoritative when it exists.
+  if (!cloud.settings) {
+
+    await apiRequest(
+      "/settings",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          settingsToApi(
+            localData.settings
+          )
+        )
+      }
+    );
+  }
+
+
+  return merged;
 }
 
-/* =====================================================
-   SAVE ONLY CHANGED RECORDS
-===================================================== */
 
-async function syncChangedRecords(previous, next) {
-  try {
-    const jobs = [];
+// ============================================================
+// SINGLE RECORD SYNC
+// ============================================================
 
-    /*
-      PRODUCTS
-    */
+async function syncChangedCollection(
+  previous,
+  next,
+  resource,
+  mapper,
+  allowDelete = true
+) {
 
-    const previousProducts = new Map(
-      (previous.products || []).map((x) => [x.id, x])
-    );
+  const previousMap =
+    mapById(previous);
 
-    const nextProducts = new Map(
-      (next.products || []).map((x) => [x.id, x])
-    );
+  const nextMap =
+    mapById(next);
 
-    for (const item of next.products || []) {
-      const old = previousProducts.get(item.id);
 
-      if (!old || JSON.stringify(old) !== JSON.stringify(item)) {
-        jobs.push(apiSave("products", productToCloud(item)));
-      }
+  // Add/update
+  for (const item of next || []) {
+
+    if (!item?.id) {
+      continue;
     }
 
-    for (const old of previous.products || []) {
-      if (!nextProducts.has(old.id)) {
-        jobs.push(apiDelete("products", old.id));
-      }
+    const old =
+      previousMap.get(item.id);
+
+
+    const changed =
+      !old ||
+      JSON.stringify(old) !==
+      JSON.stringify(item);
+
+
+    if (!changed) {
+      continue;
     }
 
-    /*
-      ORDERS
-    */
 
-    const previousOrders = new Map(
-      (previous.orders || []).map((x) => [x.id, x])
+    await apiRequest(
+      `/${resource}`,
+      {
+        method: "POST",
+
+        body: JSON.stringify(
+          mapper(item)
+        )
+      }
     );
+  }
 
-    const nextOrders = new Map(
-      (next.orders || []).map((x) => [x.id, x])
-    );
 
-    for (const item of next.orders || []) {
-      const old = previousOrders.get(item.id);
+  // Delete
+  if (allowDelete) {
 
-      if (!old || JSON.stringify(old) !== JSON.stringify(item)) {
-        jobs.push(apiSave("orders", orderToCloud(item)));
+    for (
+      const old of previous || []
+    ) {
+
+      if (
+        old?.id &&
+        !nextMap.has(old.id)
+      ) {
+
+        await apiRequest(
+          `/${resource}/${encodeURIComponent(old.id)}`,
+          {
+            method: "DELETE"
+          }
+        );
       }
     }
+  }
+}
 
-    for (const old of previous.orders || []) {
-      if (!nextOrders.has(old.id)) {
-        jobs.push(apiDelete("orders", old.id));
+
+// ============================================================
+// FULL CHANGE SYNC
+// ============================================================
+
+async function syncChanges(
+  previous,
+  next
+) {
+
+  await syncChangedCollection(
+    previous.products,
+    next.products,
+    "products",
+    productToApi,
+    true
+  );
+
+
+  await syncChangedCollection(
+    previous.orders,
+    next.orders,
+    "orders",
+    orderToApi,
+    true
+  );
+
+
+  await syncChangedCollection(
+    previous.purchases,
+    next.purchases,
+    "purchases",
+    purchaseToApi,
+    true
+  );
+
+
+  await syncChangedCollection(
+    previous.expenses,
+    next.expenses,
+    "expenses",
+    expenseToApi,
+    true
+  );
+
+
+  // Settings are a single D1 record.
+  if (
+    JSON.stringify(
+      previous.settings
+    ) !==
+    JSON.stringify(
+      next.settings
+    )
+  ) {
+
+    await apiRequest(
+      "/settings",
+      {
+        method: "POST",
+
+        body: JSON.stringify(
+          settingsToApi(
+            next.settings
+          )
+        )
       }
-    }
-
-    /*
-      EXPENSES
-    */
-
-    const previousExpenses = new Map(
-      (previous.expenses || []).map((x) => [x.id, x])
-    );
-
-    const nextExpenses = new Map(
-      (next.expenses || []).map((x) => [x.id, x])
-    );
-
-    for (const item of next.expenses || []) {
-      const old = previousExpenses.get(item.id);
-
-      if (!old || JSON.stringify(old) !== JSON.stringify(item)) {
-        jobs.push(apiSave("expenses", expenseToCloud(item)));
-      }
-    }
-
-    for (const old of previous.expenses || []) {
-      if (!nextExpenses.has(old.id)) {
-        jobs.push(apiDelete("expenses", old.id));
-      }
-    }
-
-    /*
-      PURCHASES
-
-      The current Worker supports GET/POST for purchases
-      but does not currently provide DELETE.
-
-      Therefore new/changed purchases are uploaded,
-      but an existing purchase is not deleted from D1 here.
-    */
-
-    const previousPurchases = new Map(
-      (previous.purchases || []).map((x) => [x.id, x])
-    );
-
-    for (const item of next.purchases || []) {
-      const old = previousPurchases.get(item.id);
-
-      if (!old || JSON.stringify(old) !== JSON.stringify(item)) {
-        jobs.push(apiSave("purchases", purchaseToCloud(item)));
-      }
-    }
-
-    await Promise.all(jobs);
-
-    console.log("☁️ Changes synchronized");
-
-  } catch (error) {
-    console.warn(
-      "☁️ Could not synchronize changes. Local data is safe.",
-      error
     );
   }
 }
 
-/* =====================================================
-   APP
-===================================================== */
+
+// ============================================================
+// ACCOUNTING
+// ============================================================
+
+// Revenue from an order.
+function revenue(order) {
+
+  if (
+    order.status === "Cancelled"
+  ) {
+    return 0;
+  }
+
+  return number(order.price);
+}
+
+
+// IMPORTANT:
+//
+// Order expenses include:
+//
+// 1. Product cost
+// 2. Delivery expense
+// 3. Other order expense
+//
+// General business expenses are NOT included here.
+
+function orderExpense(order) {
+
+  return (
+    number(order.cost) +
+    number(order.delivery) +
+    number(order.other)
+  );
+}
+
+
+// Profit for one individual order.
+
+function profit(order) {
+
+  return (
+    revenue(order) -
+    orderExpense(order)
+  );
+}
+
+
+// ============================================================
+// MAIN APP
+// ============================================================
 
 function App() {
-  const [data, setData] = useState(null);
-  const [page, setPage] = useState("dashboard");
-  const [sale, setSale] = useState(false);
-  const [receipt, setReceipt] = useState(null);
-  const [editOrder, setEditOrder] = useState(null);
-  const [period, setPeriod] = useState("month");
 
-  const dataRef = useRef(null);
+  const [
+    data,
+    setData
+  ] = useState(null);
+
+
+  const [
+    page,
+    setPage
+  ] = useState("dashboard");
+
+
+  const [
+    sale,
+    setSale
+  ] = useState(false);
+
+
+  const [
+    receipt,
+    setReceipt
+  ] = useState(null);
+
+
+  const [
+    editOrder,
+    setEditOrder
+  ] = useState(null);
+
+
+  const [
+    period,
+    setPeriod
+  ] = useState("month");
+
+
+  const [
+    syncState,
+    setSyncState
+  ] = useState("syncing");
+
+
+  const dataRef =
+    useRef(null);
+
+
+  // ----------------------------------------------------------
+  // INITIAL LOAD
+  // ----------------------------------------------------------
 
   useEffect(() => {
+
+    let mounted = true;
+
+
     (async () => {
+
       try {
-        let d = await dbGet();
 
-        /*
-          First installation:
-          load legacy localStorage data if available.
-        */
+        let localData =
+          await dbGet();
 
-        if (!d) {
+
+        if (!localData) {
+
           try {
-            const old = JSON.parse(
-              localStorage.getItem(OLD_KEY) || "null"
-            );
 
-            d = old ? merge(old) : empty;
+            const old =
+              JSON.parse(
+                localStorage.getItem(
+                  OLD_KEY
+                ) || "null"
+              );
+
+
+            localData =
+              old
+                ? merge(old)
+                : merge(empty);
+
+
           } catch {
-            d = empty;
+
+            localData =
+              merge(empty);
           }
 
-          await dbPut(d);
-        } else if (!d.expenses) {
-          d = merge(d);
-          await dbPut(d);
+
+          await dbPut(
+            localData
+          );
         }
 
-        d = merge(d);
 
-        /*
-          Display local data immediately.
-        */
-        dataRef.current = d;
-        setData(d);
+        localData =
+          merge(localData);
 
-        /*
-          Then connect to D1.
-        */
-        const synced = await syncCloud(d);
 
-        dataRef.current = synced;
-        setData(synced);
+        // Display local data immediately.
+        if (mounted) {
+
+          dataRef.current =
+            localData;
+
+          setData(localData);
+
+          setSyncState(
+            "syncing"
+          );
+        }
+
+
+        // Synchronize with D1.
+        const synced =
+          await initialSync(
+            localData
+          );
+
+
+        if (!mounted) {
+          return;
+        }
+
+
+        const finalData =
+          merge(synced);
+
+
+        await dbPut(
+          finalData
+        );
+
+
+        dataRef.current =
+          finalData;
+
+        setData(
+          finalData
+        );
+
+
+        setSyncState(
+          "connected"
+        );
+
 
       } catch (error) {
-        console.error("Startup error:", error);
 
-        const fallback = merge(empty);
+        console.error(
+          "Initial cloud sync failed:",
+          error
+        );
 
-        dataRef.current = fallback;
-        setData(fallback);
+
+        if (mounted) {
+
+          setSyncState(
+            "offline"
+          );
+        }
       }
+
     })();
+
+
+    return () => {
+      mounted = false;
+    };
+
   }, []);
 
-  /*
-    Every local update:
-    1. Updates screen immediately.
-    2. Saves to IndexedDB.
-    3. Sends only changed records to D1.
-  */
 
-  const update = async (nextData) => {
-    const previous = dataRef.current || empty;
-    const next = merge(nextData);
+  // ----------------------------------------------------------
+  // UPDATE LOCAL + CLOUD
+  // ----------------------------------------------------------
 
-    dataRef.current = next;
+  const update = async (
+    nextData
+  ) => {
+
+    const next =
+      merge(nextData);
+
+
+    const previous =
+      dataRef.current ||
+      merge(empty);
+
+
+    // Update UI immediately.
+    dataRef.current =
+      next;
+
     setData(next);
 
-    /*
-      Local save always happens first.
-      This means the app can continue working offline.
-    */
+
+    // Save local cache immediately.
     await dbPut(next);
 
-    /*
-      Cloud sync happens after local save.
-    */
-    await syncChangedRecords(previous, next);
+
+    // Synchronize with D1.
+    try {
+
+      setSyncState(
+        "syncing"
+      );
+
+
+      await syncChanges(
+        previous,
+        next
+      );
+
+
+      setSyncState(
+        "connected"
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        "Cloud sync failed:",
+        error
+      );
+
+
+      // Local changes remain saved.
+      setSyncState(
+        "offline"
+      );
+    }
   };
 
+
   if (!data) {
+
     return (
       <div className="loading">
         Loading SALTAN FASHION…
@@ -653,81 +1445,207 @@ function App() {
     );
   }
 
+
+  // ==========================================================
+  // DASHBOARD FILTERS
+  // ==========================================================
+
   const orders =
     period === "all"
       ? data.orders
-      : data.orders.filter((o) => monthMatch(o.date));
+      : data.orders.filter(
+          o => monthMatch(o.date)
+        );
+
 
   const purchases =
     period === "all"
       ? data.purchases
-      : data.purchases.filter((p) => monthMatch(p.date));
+      : data.purchases.filter(
+          p =>
+            monthMatch(
+              p.purchaseDate ||
+              p.date
+            )
+        );
+
 
   const expenses =
     period === "all"
       ? data.expenses
-      : data.expenses.filter((e) => monthMatch(e.date));
+      : data.expenses.filter(
+          e =>
+            monthMatch(e.date)
+        );
 
-  const sales = orders.reduce(
-    (s, o) => s + revenue(o),
-    0
-  );
 
-  const orderEx = orders.reduce(
-    (s, o) => s + orderExpense(o),
-    0
-  );
+  // ==========================================================
+  // DASHBOARD ACCOUNTING
+  // ==========================================================
 
-  const stockEx = purchases.reduce(
-    (s, p) => s + Number(p.total || 0),
-    0
-  );
+  const sales =
+    orders.reduce(
+      (sum, order) =>
+        sum + revenue(order),
+      0
+    );
 
-  const generalEx = expenses.reduce(
-    (s, e) => s + Number(e.amount || 0),
-    0
-  );
 
-  const stock = data.products.reduce(
-    (s, p) =>
-      s +
-      Math.max(
-        0,
-        p.stock -
+  const orderEx =
+    orders.reduce(
+      (sum, order) =>
+        sum + orderExpense(order),
+      0
+    );
+
+
+  // Stock purchases are tracked separately.
+  // They are NOT deducted from net profit again.
+
+  const stockEx =
+    purchases.reduce(
+      (sum, purchase) =>
+        sum +
+        number(
+          purchase.total
+        ),
+      0
+    );
+
+
+  // General expenses are separate from orders.
+
+  const generalEx =
+    expenses.reduce(
+      (sum, expense) =>
+        sum +
+        number(
+          expense.amount
+        ),
+      0
+    );
+
+
+  // Correct net profit:
+  //
+  // Sales
+  // - product costs
+  // - delivery
+  // - other order expenses
+  // - general business expenses
+
+  const netProfit =
+    sales -
+    orderEx -
+    generalEx;
+
+
+  // Stock calculation.
+
+  const stock =
+    data.products.reduce(
+      (sum, product) => {
+
+        const sold =
           data.orders.filter(
-            (o) =>
-              o.productId === p.id &&
-              !["Cancelled"].includes(o.status) &&
-              ["Dispatched", "Delivered"].includes(o.status)
-          ).length
-      ),
-    0
-  );
+            order =>
+              order.productId ===
+                product.id &&
+
+              ![
+                "Cancelled"
+              ].includes(
+                order.status
+              ) &&
+
+              [
+                "Dispatched",
+                "Delivered"
+              ].includes(
+                order.status
+              )
+          ).length;
+
+
+        return (
+          sum +
+          Math.max(
+            0,
+            number(product.stock) -
+            sold
+          )
+        );
+      },
+      0
+    );
+
 
   const stats = {
+
     sales,
+
     orderEx,
+
     stockEx,
+
     generalEx,
-    expenses: orderEx + stockEx + generalEx,
-    expenseCount: expenses.length,
-    profit: sales - orderEx - stockEx - generalEx,
-    orders: orders.length,
-    pending: orders.filter(
-      (o) => o.status === "Pending"
-    ).length,
+
+    // This is the actual expense affecting profit.
+    expenses:
+      orderEx +
+      generalEx,
+
+    expenseCount:
+      expenses.length,
+
+    profit:
+      netProfit,
+
+    orders:
+      orders.length,
+
+    pending:
+      orders.filter(
+        o =>
+          o.status ===
+          "Pending"
+      ).length,
+
     stock
   };
 
+
   const nav = [
-    ["dashboard", "⌂ Dashboard"],
-    ["products", "◫ Products"],
-    ["orders", "▤ Orders"],
-    ["expenses", "▣ Expenses"],
-    ["settings", "⚙ Settings"]
+
+    [
+      "dashboard",
+      "⌂ Dashboard"
+    ],
+
+    [
+      "products",
+      "◫ Products"
+    ],
+
+    [
+      "orders",
+      "▤ Orders"
+    ],
+
+    [
+      "expenses",
+      "▣ Expenses"
+    ],
+
+    [
+      "settings",
+      "⚙ Settings"
+    ]
   ];
 
+
   return (
+
     <div className="app">
 
       <header className="top">
@@ -736,30 +1654,81 @@ function App() {
           Sale <span>Tracker</span>
         </div>
 
+
+        <div
+          style={{
+            fontSize: "12px",
+            marginLeft: "8px",
+            marginRight: "8px",
+            whiteSpace: "nowrap"
+          }}
+        >
+
+          <span
+            style={{
+              display: "inline-block",
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              marginRight: "5px",
+
+              background:
+                syncState === "connected"
+                  ? "#22c55e"
+                  : syncState === "syncing"
+                  ? "#f59e0b"
+                  : "#ef4444"
+            }}
+          />
+
+          {syncState === "connected"
+            ? "Cloud connected"
+            : syncState === "syncing"
+            ? "Syncing…"
+            : "Offline"}
+        </div>
+
+
         <nav>
-          {nav.map(([id, label]) => (
-            <button
-              key={id}
-              className={page === id ? "active" : ""}
-              onClick={() => setPage(id)}
-            >
-              {label}
-            </button>
-          ))}
+
+          {nav.map(
+            ([id, label]) => (
+
+              <button
+                key={id}
+                className={
+                  page === id
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setPage(id)
+                }
+              >
+                {label}
+              </button>
+            )
+          )}
+
         </nav>
+
 
         <button
           className="add"
-          onClick={() => setSale(true)}
+          onClick={() =>
+            setSale(true)
+          }
         >
           ＋ Sale
         </button>
 
       </header>
 
+
       <main>
 
         {page === "dashboard" && (
+
           <Dashboard
             data={data}
             stats={stats}
@@ -768,97 +1737,146 @@ function App() {
             openReceipt={setReceipt}
             edit={setEditOrder}
           />
+
         )}
 
+
         {page === "products" && (
+
           <Products
             data={data}
             update={update}
           />
+
         )}
 
+
         {page === "orders" && (
+
           <Orders
             data={data}
             update={update}
             receipt={setReceipt}
             edit={setEditOrder}
-            add={() => setSale(true)}
+            add={() =>
+              setSale(true)
+            }
           />
+
         )}
 
+
         {page === "expenses" && (
+
           <Expenses
             data={data}
             update={update}
           />
+
         )}
 
+
         {page === "settings" && (
+
           <Settings
             data={data}
             update={update}
           />
+
         )}
 
       </main>
 
+
       <div className="mobilebar">
 
-        {nav.map(([id, i]) => (
-          <button
-            key={id}
-            className={page === id ? "sel" : ""}
-            onClick={() => setPage(id)}
-          >
-            <b>{i[0]}</b>
-            <span>{id}</span>
-          </button>
-        ))}
+        {nav.map(
+          ([id, label]) => (
+
+            <button
+              key={id}
+              className={
+                page === id
+                  ? "sel"
+                  : ""
+              }
+              onClick={() =>
+                setPage(id)
+              }
+            >
+              <b>
+                {label[0]}
+              </b>
+
+              <span>
+                {id}
+              </span>
+            </button>
+          )
+        )}
+
 
         <button
           className="mobile-sale"
-          onClick={() => setSale(true)}
+          onClick={() =>
+            setSale(true)
+          }
         >
           ＋
         </button>
 
       </div>
 
+
       {sale && (
+
         <SaleModal
           data={data}
           update={update}
-          close={() => setSale(false)}
+          close={() =>
+            setSale(false)
+          }
           receipt={setReceipt}
         />
+
       )}
 
+
       {editOrder && (
+
         <SaleModal
           data={data}
           update={update}
           initial={editOrder}
-          close={() => setEditOrder(null)}
+          close={() =>
+            setEditOrder(null)
+          }
           receipt={setReceipt}
         />
+
       )}
 
+
       {receipt && (
+
         <Receipt
           order={receipt}
           data={data}
-          close={() => setReceipt(null)}
+          close={() =>
+            setReceipt(null)
+          }
         />
+
       )}
 
     </div>
   );
 }
 
-/* =====================================================
-   DASHBOARD
-===================================================== */
+
+// ============================================================
+// DASHBOARD
+// ============================================================
 
 function Dashboard({
   data,
@@ -868,34 +1886,61 @@ function Dashboard({
   openReceipt,
   edit
 }) {
-  const recent = [...data.orders]
-    .sort((a, b) => b.orderNo - a.orderNo)
-    .slice(0, 8);
+
+  const recent =
+    [...data.orders]
+      .sort(
+        (a, b) =>
+          number(b.orderNo) -
+          number(a.orderNo)
+      )
+      .slice(0, 8);
+
 
   return (
+
     <section>
 
       <div className="head">
 
         <div>
-          <h1>Dashboard</h1>
+
+          <h1>
+            Dashboard
+          </h1>
+
           <p>
             Sales, stock and expenses at a glance.
           </p>
+
         </div>
+
 
         <div className="seg">
 
           <button
-            className={period === "month" ? "on" : ""}
-            onClick={() => setPeriod("month")}
+            className={
+              period === "month"
+                ? "on"
+                : ""
+            }
+            onClick={() =>
+              setPeriod("month")
+            }
           >
             This month
           </button>
 
+
           <button
-            className={period === "all" ? "on" : ""}
-            onClick={() => setPeriod("all")}
+            className={
+              period === "all"
+                ? "on"
+                : ""
+            }
+            onClick={() =>
+              setPeriod("all")
+            }
           >
             All time
           </button>
@@ -903,6 +1948,7 @@ function Dashboard({
         </div>
 
       </div>
+
 
       <div className="kpis">
 
@@ -918,10 +1964,14 @@ function Dashboard({
         />
 
         <K
-  label="Expenses"
-  v={money(stats.expenses)}
-  icon="💸"
-/>
+          label="Order costs"
+          v={money(stats.orderEx)}
+        />
+
+        <K
+          label="General expenses"
+          v={money(stats.generalEx)}
+        />
 
         <K
           label="Orders"
@@ -941,20 +1991,34 @@ function Dashboard({
 
       </div>
 
+
       <div className="expense-highlight">
 
         <div>
-          <span>General expenses</span>
-          <b>{money(stats.generalEx)}</b>
+
+          <span>
+            General expenses
+          </span>
+
+          <b>
+            {money(
+              stats.generalEx
+            )}
+          </b>
+
           <small>
             {stats.expenseCount} expense records this period
           </small>
+
         </div>
+
 
         <button
           onClick={() =>
             document
-              .querySelectorAll(".mobilebar button")[3]
+              .querySelectorAll(
+                ".mobilebar button"
+              )[3]
               ?.click()
           }
         >
@@ -963,44 +2027,192 @@ function Dashboard({
 
       </div>
 
+
       <div className="dashboard-grid">
 
         <div className="panel">
 
           <div className="panel-head">
-            <h2>Recent orders</h2>
-            <span>{data.orders.length} total</span>
+
+            <h2>
+              Recent orders
+            </h2>
+
+            <span>
+              {data.orders.length} total
+            </span>
+
           </div>
 
-          {recent.length ? (
-            recent.map((o) => (
-              <OrderRow
-                key={o.id}
-                o={o}
-                edit={edit}
-                receipt={openReceipt}
+
+          {recent.length
+            ? recent.map(
+                order => (
+
+                  <OrderRow
+                    key={order.id}
+                    o={order}
+                    edit={edit}
+                    receipt={openReceipt}
+                  />
+
+                )
+              )
+
+            : (
+
+              <Empty
+                text="No orders yet."
               />
-            ))
-          ) : (
-            <Empty text="No orders yet." />
-          )}
+
+            )}
 
         </div>
+
 
         <div className="panel">
 
           <div className="panel-head">
-            <h2>Expenses</h2>
-            <span>{data.expenses.length} general</span>
+
+            <h2>
+              General expenses
+            </h2>
+
+            <span>
+              {data.expenses.length} general
+            </span>
+
           </div>
 
+
           <ExpenseSummary
-            expenses={data.expenses.filter(
-              (e) =>
-                period === "all" ||
-                monthMatch(e.date)
-            )}
+            expenses={
+              data.expenses.filter(
+                e =>
+                  period === "all" ||
+                  monthMatch(e.date)
+              )
+            }
           />
+
+        </div>
+
+      </div>
+
+
+      <div
+        className="panel"
+        style={{
+          marginTop: "20px"
+        }}
+      >
+
+        <div className="panel-head">
+
+          <h2>
+            Financial breakdown
+          </h2>
+
+          <span>
+            {period === "month"
+              ? "This month"
+              : "All time"}
+          </span>
+
+        </div>
+
+
+        <div className="stockline">
+
+          <div>
+            <b>
+              Sales
+            </b>
+
+            <small>
+              Revenue from non-cancelled orders
+            </small>
+          </div>
+
+          <strong>
+            {money(stats.sales)}
+          </strong>
+
+        </div>
+
+
+        <div className="stockline">
+
+          <div>
+            <b>
+              Order costs
+            </b>
+
+            <small>
+              Product cost + delivery + other order expenses
+            </small>
+          </div>
+
+          <strong>
+            {money(stats.orderEx)}
+          </strong>
+
+        </div>
+
+
+        <div className="stockline">
+
+          <div>
+            <b>
+              General expenses
+            </b>
+
+            <small>
+              Shop/business expenses outside individual orders
+            </small>
+          </div>
+
+          <strong>
+            {money(stats.generalEx)}
+          </strong>
+
+        </div>
+
+
+        <div className="stockline">
+
+          <div>
+            <b>
+              Stock purchases
+            </b>
+
+            <small>
+              Inventory cash spending — tracked separately
+            </small>
+          </div>
+
+          <strong>
+            {money(stats.stockEx)}
+          </strong>
+
+        </div>
+
+
+        <div className="stockline">
+
+          <div>
+            <b>
+              Net profit
+            </b>
+
+            <small>
+              Sales − order costs − general expenses
+            </small>
+          </div>
+
+          <strong>
+            {money(stats.profit)}
+          </strong>
 
         </div>
 
@@ -1010,8 +2222,20 @@ function Dashboard({
   );
 }
 
-function K({ label, v, a, d }) {
+
+// ============================================================
+// KPI
+// ============================================================
+
+function K({
+  label,
+  v,
+  a,
+  d
+}) {
+
   return (
+
     <div
       className={
         "k " +
@@ -1019,72 +2243,191 @@ function K({ label, v, a, d }) {
         (d ? "red" : "")
       }
     >
-      <b>{v}</b>
-      <span>{label}</span>
+
+      <b>
+        {v}
+      </b>
+
+      <span>
+        {label}
+      </span>
+
     </div>
   );
 }
 
-function Empty({ text }) {
-  return <div className="empty">{text}</div>;
+
+// ============================================================
+// EMPTY
+// ============================================================
+
+function Empty({
+  text
+}) {
+
+  return (
+    <div className="empty">
+      {text}
+    </div>
+  );
 }
 
-/* =====================================================
-   PRODUCTS
-===================================================== */
 
-function Products({ data, update }) {
-  const [form, setForm] = useState(null);
+// ============================================================
+// PRODUCTS
+// ============================================================
 
-  const save = (p) => {
-    let n = { ...data };
+function Products({
+  data,
+  update
+}) {
+
+  const [
+    form,
+    setForm
+  ] = useState(null);
+
+
+  const save = async p => {
+
+    let next = {
+      ...data
+    };
+
 
     if (p.id) {
-      n.products = n.products.map(
-        (x) => (x.id === p.id ? p : x)
-      );
+
+      next.products =
+        next.products.map(
+          x =>
+            x.id === p.id
+              ? {
+                  ...p,
+                  cost: number(p.cost),
+                  stock: number(p.stock)
+                }
+              : x
+        );
+
     } else {
-      p = {
+
+      const product = {
         ...p,
-        id: uid()
+
+        id: uid(),
+
+        cost:
+          number(p.cost),
+
+        stock:
+          number(p.stock)
       };
 
-      n.products = [
-        ...n.products,
-        p
+
+      next.products = [
+        ...next.products,
+        product
       ];
 
-      if (p.stock) {
-        n.purchases = [
-          ...n.purchases,
+
+      // Initial stock becomes a purchase record.
+      if (
+        number(product.stock) > 0
+      ) {
+
+        next.purchases = [
+
+          ...next.purchases,
+
           {
             id: uid(),
-            productId: p.id,
-            name: p.name,
-            qty: p.stock,
-            costEach: p.cost,
-            total: p.stock * p.cost,
-            date: today()
+
+            productId:
+              product.id,
+
+            productName:
+              product.name,
+
+            name:
+              product.name,
+
+            quantity:
+              number(product.stock),
+
+            qty:
+              number(product.stock),
+
+            costEach:
+              number(product.cost),
+
+            total:
+              number(product.stock) *
+              number(product.cost),
+
+            purchaseDate:
+              today(),
+
+            date:
+              today()
           }
         ];
       }
     }
 
-    update(n);
+
+    await update(next);
+
     setForm(null);
   };
 
+
+  const remove = async p => {
+
+    if (
+      !confirm(
+        "Remove product? Historical purchase records and past orders will stay saved."
+      )
+    ) {
+      return;
+    }
+
+
+    // IMPORTANT:
+    //
+    // We delete only the product itself.
+    // We DO NOT delete purchase history.
+
+    await update({
+
+      ...data,
+
+      products:
+        data.products.filter(
+          x =>
+            x.id !== p.id
+        )
+    });
+  };
+
+
   return (
+
     <section>
 
       <div className="head">
 
         <div>
-          <h1>Products</h1>
+
+          <h1>
+            Products
+          </h1>
+
           <p>
             Inventory and product cost tracking.
           </p>
+
         </div>
+
 
         <button
           className="primary"
@@ -1101,138 +2444,202 @@ function Products({ data, update }) {
 
       </div>
 
+
       <div className="cards">
 
-        {data.products.map((p) => (
-          <div
-            className="product"
-            key={p.id}
-          >
+        {data.products.map(
+          p => (
 
-            <h3>{p.name}</h3>
+            <div
+              className="product"
+              key={p.id}
+            >
 
-            <div>
-              <span>Cost</span>
-              <b>{money(p.cost)}</b>
+              <h3>
+                {p.name}
+              </h3>
+
+
+              <div>
+
+                <span>
+                  Cost
+                </span>
+
+                <b>
+                  {money(p.cost)}
+                </b>
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  Stock
+                </span>
+
+                <b>
+                  {p.stock}
+                </b>
+
+              </div>
+
+
+              <div className="actions">
+
+                <button
+                  onClick={() =>
+                    setForm({
+                      ...p
+                    })
+                  }
+                >
+                  Edit
+                </button>
+
+
+                <button
+                  className="danger"
+                  onClick={() =>
+                    remove(p)
+                  }
+                >
+                  Remove
+                </button>
+
+              </div>
+
             </div>
 
-            <div>
-              <span>Stock</span>
-              <b>{p.stock}</b>
-            </div>
-
-            <div className="actions">
-
-              <button
-                onClick={() => setForm(p)}
-              >
-                Edit
-              </button>
-
-              <button
-                className="danger"
-                onClick={() =>
-                  confirm(
-                    "Remove product? Past orders stay saved."
-                  ) &&
-                  update({
-                    ...data,
-                    products:
-                      data.products.filter(
-                        (x) => x.id !== p.id
-                      ),
-                    purchases:
-                      data.purchases.filter(
-                        (x) => x.productId !== p.id
-                      )
-                  })
-                }
-              >
-                Remove
-              </button>
-
-            </div>
-
-          </div>
-        ))}
+          )
+        )}
 
       </div>
 
+
       {!data.products.length && (
+
         <div className="panel">
-          <Empty text="No products yet." />
+
+          <Empty
+            text="No products yet."
+          />
+
         </div>
+
       )}
 
+
       {form && (
+
         <ProductForm
           p={form}
           save={save}
-          close={() => setForm(null)}
+          close={() =>
+            setForm(null)
+          }
         />
+
       )}
 
     </section>
   );
 }
 
-function ProductForm({ p, save, close }) {
-  const [f, setF] = useState(p);
+
+// ============================================================
+// PRODUCT FORM
+// ============================================================
+
+function ProductForm({
+  p,
+  save,
+  close
+}) {
+
+  const [
+    f,
+    setF
+  ] = useState(p);
+
 
   return (
+
     <Modal
-      title={p.id ? "Edit product" : "Add product"}
+      title={
+        p.id
+          ? "Edit product"
+          : "Add product"
+      }
       close={close}
     >
 
       <Field l="Product name">
+
         <input
           value={f.name}
-          onChange={(e) =>
+          onChange={e =>
             setF({
               ...f,
               name: e.target.value
             })
           }
         />
+
       </Field>
+
 
       <div className="grid2">
 
         <Field l="Cost price">
+
           <input
             type="number"
+            min="0"
+            step="0.01"
             value={f.cost}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                cost: Number(e.target.value)
+                cost:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
+
         <Field l="Stock">
+
           <input
             type="number"
+            min="0"
+            step="1"
             value={f.stock}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                stock: Number(e.target.value)
+                stock:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
       </div>
+
 
       <button
         className="primary wide"
         onClick={() =>
           f.name.trim()
             ? save(f)
-            : alert("Enter product name.")
+            : alert(
+                "Enter product name."
+              )
         }
       >
         Save
@@ -1242,9 +2649,10 @@ function ProductForm({ p, save, close }) {
   );
 }
 
-/* =====================================================
-   ORDERS
-===================================================== */
+
+// ============================================================
+// ORDERS
+// ============================================================
 
 function Orders({
   data,
@@ -1253,63 +2661,114 @@ function Orders({
   edit,
   add
 }) {
-  const [q, setQ] = useState("");
-  const [st, setSt] = useState("All");
 
-  const rows = [...data.orders]
-    .sort((a, b) => b.orderNo - a.orderNo)
-    .filter(
-      (o) =>
-        (
-          `${o.customerName} ${o.phone} ${o.location} ${o.productName}`
+  const [
+    q,
+    setQ
+  ] = useState("");
+
+
+  const [
+    st,
+    setSt
+  ] = useState("All");
+
+
+  const rows =
+    [...data.orders]
+      .sort(
+        (a, b) =>
+          number(b.orderNo) -
+          number(a.orderNo)
+      )
+      .filter(
+        o => (
+
+          `${o.customerName || ""} ` +
+          `${o.phone || ""} ` +
+          `${o.location || ""} ` +
+          `${o.productName || ""}`
         )
           .toLowerCase()
-          .includes(q.toLowerCase()) &&
-        (st === "All" || o.status === st)
-    );
+          .includes(
+            q.toLowerCase()
+          ) &&
 
-  const change = (id, v) =>
-    update({
-      ...data,
-      orders: data.orders.map(
-        (o) =>
-          o.id === id
-            ? {
-                ...o,
-                status: v
-              }
-            : o
-      )
-    });
+          (
+            st === "All" ||
+            o.status === st
+          )
+      );
 
-  const remove = (id) => {
-    if (
-      !confirm(
-        "Delete this order permanently from this device?"
-      )
-    ) {
-      return;
-    }
 
-    update({
-      ...data,
-      orders: data.orders.filter(
-        (x) => x.id !== id
-      )
-    });
-  };
+  const change =
+    async (
+      id,
+      value
+    ) => {
+
+      await update({
+
+        ...data,
+
+        orders:
+          data.orders.map(
+            o =>
+              o.id === id
+                ? {
+                    ...o,
+                    status:
+                      value
+                  }
+                : o
+          )
+      });
+    };
+
+
+  const remove =
+    async id => {
+
+      if (
+        !confirm(
+          "Delete this order permanently?"
+        )
+      ) {
+        return;
+      }
+
+
+      await update({
+
+        ...data,
+
+        orders:
+          data.orders.filter(
+            x =>
+              x.id !== id
+          )
+      });
+    };
+
 
   return (
+
     <section>
 
       <div className="head">
 
         <div>
-          <h1>Orders</h1>
+
+          <h1>
+            Orders
+          </h1>
+
           <p>
             Every order can be edited, status-updated or deleted.
           </p>
+
         </div>
+
 
         <button
           className="primary"
@@ -1320,53 +2779,91 @@ function Orders({
 
       </div>
 
+
       <div className="toolbar">
 
         <input
           placeholder="Search customer, phone, location or product…"
           value={q}
-          onChange={(e) =>
-            setQ(e.target.value)
+          onChange={e =>
+            setQ(
+              e.target.value
+            )
           }
         />
 
+
         <select
           value={st}
-          onChange={(e) =>
-            setSt(e.target.value)
+          onChange={e =>
+            setSt(
+              e.target.value
+            )
           }
         >
-          <option>All</option>
-          <option>Pending</option>
-          <option>Dispatched</option>
-          <option>Delivered</option>
-          <option>Cancelled</option>
+
+          <option>
+            All
+          </option>
+
+          <option>
+            Pending
+          </option>
+
+          <option>
+            Dispatched
+          </option>
+
+          <option>
+            Delivered
+          </option>
+
+          <option>
+            Cancelled
+          </option>
+
         </select>
 
       </div>
 
+
       <div className="panel">
 
-        {rows.length ? (
-          rows.map((o) => (
-            <OrderRow
-              key={o.id}
-              o={o}
-              edit={edit}
-              receipt={receipt}
-              onStatus={change}
-              onDelete={remove}
+        {rows.length
+
+          ? rows.map(
+              o => (
+
+                <OrderRow
+                  key={o.id}
+                  o={o}
+                  edit={edit}
+                  receipt={receipt}
+                  onStatus={change}
+                  onDelete={remove}
+                />
+
+              )
+            )
+
+          : (
+
+            <Empty
+              text="No matching orders."
             />
-          ))
-        ) : (
-          <Empty text="No matching orders." />
-        )}
+
+          )}
 
       </div>
 
     </section>
   );
 }
+
+
+// ============================================================
+// ORDER ROW
+// ============================================================
 
 function OrderRow({
   o,
@@ -1375,33 +2872,50 @@ function OrderRow({
   onStatus,
   onDelete
 }) {
+
   return (
+
     <div className="order">
 
       <div className="order-info">
 
         <b>
           ORD-
-          {String(o.orderNo).padStart(3, "0")}
+          {String(
+            o.orderNo
+          ).padStart(3, "0")}
         </b>
 
+
         <div>
-          <strong>{o.productName}</strong>
+
+          <strong>
+            {o.productName}
+          </strong>
 
           <small>
-            {o.customerName || "Walk-in"}
 
-            {o.phone && " · " + o.phone}
+            {o.customerName ||
+              "Walk-in"}
 
-            {o.location && " · " + o.location}
+            {o.phone &&
+              " · " + o.phone}
+
+            {o.location &&
+              " · " + o.location}
+
           </small>
+
         </div>
 
       </div>
 
+
       <div className="order-money">
 
-        <span>{money(o.price)}</span>
+        <span>
+          {money(o.price)}
+        </span>
 
         <b
           className={
@@ -1410,17 +2924,23 @@ function OrderRow({
               : ""
           }
         >
-          {money(profit(o))}
+          {money(
+            profit(o)
+          )}
         </b>
 
       </div>
+
 
       <div className="order-actions">
 
         <select
           className={o.status}
-          value={o.status}
-          onChange={(e) =>
+          value={
+            o.status ||
+            "Pending"
+          }
+          onChange={e =>
             onStatus &&
             onStatus(
               o.id,
@@ -1428,27 +2948,55 @@ function OrderRow({
             )
           }
         >
-          <option>Pending</option>
-          <option>Dispatched</option>
-          <option>Delivered</option>
-          <option>Cancelled</option>
+
+          <option>
+            Pending
+          </option>
+
+          <option>
+            Dispatched
+          </option>
+
+          <option>
+            Delivered
+          </option>
+
+          <option>
+            Cancelled
+          </option>
+
         </select>
 
-        <button onClick={() => edit(o)}>
+
+        <button
+          onClick={() =>
+            edit(o)
+          }
+        >
           Edit
         </button>
 
-        <button onClick={() => receipt(o)}>
+
+        <button
+          onClick={() =>
+            receipt(o)
+          }
+        >
           Receipt
         </button>
 
+
         {onDelete && (
+
           <button
             className="danger"
-            onClick={() => onDelete(o.id)}
+            onClick={() =>
+              onDelete(o.id)
+            }
           >
             Delete
           </button>
+
         )}
 
       </div>
@@ -1457,9 +3005,10 @@ function OrderRow({
   );
 }
 
-/* =====================================================
-   SALE MODAL
-===================================================== */
+
+// ============================================================
+// SALE / ORDER MODAL
+// ============================================================
 
 function SaleModal({
   data,
@@ -1468,9 +3017,18 @@ function SaleModal({
   receipt,
   initial
 }) {
-  const [f, setF] = useState(
+
+  const [
+    f,
+    setF
+  ] = useState(
+
     initial
-      ? { ...initial }
+
+      ? {
+          ...initial
+        }
+
       : {
           productName: "",
           productId: "",
@@ -1487,61 +3045,136 @@ function SaleModal({
         }
   );
 
-  const editing = !!initial;
 
-  const choose = (id) => {
-    const p = data.products.find(
-      (x) => x.id === id
-    );
+  const editing =
+    Boolean(initial);
 
-    setF({
-      ...f,
-      productId: id,
-      productName: p?.name || "",
-      cost: p?.cost ?? ""
-    });
-  };
 
-  const save = async () => {
-    if (!f.productName.trim()) {
-      return alert("Enter a product.");
-    }
+  const choose =
+    id => {
 
-    const o = {
-      ...f,
-      id: f.id || uid(),
-      orderNo:
-        f.orderNo ||
-        (data.orderCounter + 1),
-      price: +f.price || 0,
-      cost: +f.cost || 0,
-      delivery: +f.delivery || 0,
-      other: +f.other || 0
+      const product =
+        data.products.find(
+          x =>
+            x.id === id
+        );
+
+
+      setF({
+
+        ...f,
+
+        productId:
+          id,
+
+        productName:
+          product?.name ||
+          "",
+
+        cost:
+          product?.cost ??
+          ""
+      });
     };
 
-    const n = {
-      ...data,
-      orderCounter: Math.max(
-        data.orderCounter,
-        o.orderNo
-      ),
-      orders: editing
-        ? data.orders.map(
-            (x) =>
-              x.id === o.id
-                ? o
-                : x
-          )
-        : [...data.orders, o]
+
+  const save =
+    async () => {
+
+      if (
+        !f.productName.trim()
+      ) {
+
+        alert(
+          "Enter a product."
+        );
+
+        return;
+      }
+
+
+      const order = {
+
+        ...f,
+
+        id:
+          f.id ||
+          uid(),
+
+        orderNo:
+          f.orderNo ||
+          (
+            data.orderCounter +
+            1
+          ),
+
+        price:
+          number(f.price),
+
+        cost:
+          number(f.cost),
+
+        delivery:
+          number(f.delivery),
+
+        other:
+          number(f.other),
+
+        payment:
+          f.payment ||
+          "Unpaid",
+
+        date:
+          f.date ||
+          today(),
+
+        status:
+          f.status ||
+          "Pending"
+      };
+
+
+      const next = {
+
+        ...data,
+
+        orderCounter:
+          Math.max(
+            number(
+              data.orderCounter
+            ),
+            number(
+              order.orderNo
+            )
+          ),
+
+        orders:
+          editing
+
+            ? data.orders.map(
+                x =>
+                  x.id === order.id
+                    ? order
+                    : x
+              )
+
+            : [
+                ...data.orders,
+                order
+              ]
+      };
+
+
+      await update(next);
+
+      close();
+
+      receipt(order);
     };
 
-    await update(n);
-
-    close();
-    receipt(o);
-  };
 
   return (
+
     <Modal
       title={
         editing
@@ -1554,29 +3187,43 @@ function SaleModal({
       <Field l="Product">
 
         <select
-          value={f.productId || ""}
-          onChange={(e) =>
-            choose(e.target.value)
+          value={
+            f.productId ||
+            ""
+          }
+          onChange={e =>
+            choose(
+              e.target.value
+            )
           }
         >
+
           <option value="">
             Choose stocked product
           </option>
 
-          {data.products.map((p) => (
-            <option
-              key={p.id}
-              value={p.id}
-            >
-              {p.name}
-            </option>
-          ))}
+          {data.products.map(
+            p => (
+
+              <option
+                key={p.id}
+                value={p.id}
+              >
+                {p.name}
+              </option>
+
+            )
+          )}
+
         </select>
+
 
         <input
           className="mt"
-          value={f.productName}
-          onChange={(e) =>
+          value={
+            f.productName
+          }
+          onChange={e =>
             setF({
               ...f,
               productName:
@@ -1588,124 +3235,191 @@ function SaleModal({
 
       </Field>
 
+
       <div className="grid2">
 
         <Field l="Selling price">
+
           <input
             type="number"
+            min="0"
+            step="0.01"
             value={f.price}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                price: e.target.value
+                price:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
+
         <Field l="Cost price">
+
           <input
             type="number"
+            min="0"
+            step="0.01"
             value={f.cost}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                cost: e.target.value
+                cost:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
       </div>
+
 
       <div className="grid2">
 
         <Field l="Delivery expense">
+
           <input
             type="number"
+            min="0"
+            step="0.01"
             value={f.delivery}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                delivery: e.target.value
+                delivery:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
+
         <Field l="Other order expense">
+
           <input
             type="number"
+            min="0"
+            step="0.01"
             value={f.other}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                other: e.target.value
+                other:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
       </div>
+
 
       <div className="grid2">
 
         <Field l="Order date">
+
           <input
             type="date"
             value={f.date}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                date: e.target.value
+                date:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
+
         <Field l="Order status">
+
           <select
             value={f.status}
-            onChange={(e) =>
+            onChange={e =>
               setF({
                 ...f,
-                status: e.target.value
+                status:
+                  e.target.value
               })
             }
           >
-            <option>Pending</option>
-            <option>Dispatched</option>
-            <option>Delivered</option>
-            <option>Cancelled</option>
+
+            <option>
+              Pending
+            </option>
+
+            <option>
+              Dispatched
+            </option>
+
+            <option>
+              Delivered
+            </option>
+
+            <option>
+              Cancelled
+            </option>
+
           </select>
+
         </Field>
 
       </div>
 
+
       <Field l="Payment status">
 
         <select
-          value={f.payment || "Unpaid"}
-          onChange={(e) =>
+          value={
+            f.payment ||
+            "Unpaid"
+          }
+          onChange={e =>
             setF({
               ...f,
-              payment: e.target.value
+              payment:
+                e.target.value
             })
           }
         >
-          <option>Unpaid</option>
-          <option>Partial</option>
-          <option>Paid</option>
+
+          <option>
+            Unpaid
+          </option>
+
+          <option>
+            Partial
+          </option>
+
+          <option>
+            Paid
+          </option>
+
         </select>
 
       </Field>
 
-      <h3>Customer</h3>
+
+      <h3>
+        Customer
+      </h3>
+
 
       <Field l="Name">
+
         <input
-          value={f.customerName}
-          onChange={(e) =>
+          value={
+            f.customerName
+          }
+          onChange={e =>
             setF({
               ...f,
               customerName:
@@ -1713,26 +3427,37 @@ function SaleModal({
             })
           }
         />
+
       </Field>
+
 
       <div className="grid2">
 
         <Field l="Phone">
+
           <input
-            value={f.phone}
-            onChange={(e) =>
+            value={
+              f.phone
+            }
+            onChange={e =>
               setF({
                 ...f,
-                phone: e.target.value
+                phone:
+                  e.target.value
               })
             }
           />
+
         </Field>
 
+
         <Field l="Location">
+
           <input
-            value={f.location}
-            onChange={(e) =>
+            value={
+              f.location
+            }
+            onChange={e =>
               setF({
                 ...f,
                 location:
@@ -1740,24 +3465,29 @@ function SaleModal({
               })
             }
           />
+
         </Field>
 
       </div>
 
+
       <div className="estimate">
 
-        <span>Order profit</span>
+        <span>
+          Order profit
+        </span>
 
         <b>
           {money(
-            (+f.price || 0) -
-              (+f.cost || 0) -
-              (+f.delivery || 0) -
-              (+f.other || 0)
+            number(f.price) -
+            number(f.cost) -
+            number(f.delivery) -
+            number(f.other)
           )}
         </b>
 
       </div>
+
 
       <button
         className="primary wide"
@@ -1772,112 +3502,231 @@ function SaleModal({
   );
 }
 
-/* =====================================================
-   EXPENSES
-===================================================== */
+
+// ============================================================
+// EXPENSES
+// ============================================================
 
 const expenseCategories = [
+
   "Accommodation",
+
   "Food",
+
   "Transport",
+
   "Fuel",
+
   "Packaging",
+
   "Phone / Internet",
+
   "Bank / Payment fees",
+
   "Office / Shop",
+
   "Repairs",
+
   "Other"
+
 ];
 
-function Expenses({ data, update }) {
-  const [form, setForm] = useState(null);
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState("All");
-  const [period, setPeriod] = useState("month");
 
-  const rows = [...data.expenses]
-    .sort((a, b) =>
-      b.date.localeCompare(a.date)
-    )
-    .filter(
-      (e) =>
-        (period === "all" ||
-          monthMatch(e.date)) &&
-        (cat === "All" ||
-          e.category === cat) &&
-        (
-          `${e.category} ${
-            e.description
-          } ${e.paymentMethod || ""}`
+function Expenses({
+  data,
+  update
+}) {
+
+  const [
+    form,
+    setForm
+  ] = useState(null);
+
+
+  const [
+    q,
+    setQ
+  ] = useState("");
+
+
+  const [
+    cat,
+    setCat
+  ] = useState("All");
+
+
+  const [
+    period,
+    setPeriod
+  ] = useState("month");
+
+
+  const rows =
+
+    [...data.expenses]
+
+      .sort(
+        (a, b) =>
+          String(
+            b.date || ""
+          ).localeCompare(
+            String(
+              a.date || ""
+            )
+          )
+      )
+
+      .filter(
+        e => (
+
+          (
+            period === "all" ||
+            monthMatch(e.date)
+          ) &&
+
+          (
+            cat === "All" ||
+            e.category === cat
+          ) &&
+
+          (
+            `${e.category || ""} ` +
+            `${e.description || ""} ` +
+            `${e.paymentMethod || ""}`
+          )
+            .toLowerCase()
+            .includes(
+              q.toLowerCase()
+            )
         )
-          .toLowerCase()
-          .includes(q.toLowerCase())
+      );
+
+
+  const total =
+    rows.reduce(
+      (sum, e) =>
+        sum +
+        number(e.amount),
+      0
     );
 
-  const total = rows.reduce(
-    (s, e) =>
-      s + Number(e.amount || 0),
-    0
-  );
 
-  const save = (e) => {
-    const n = {
-      ...data,
-      expenses: e.id
-        ? data.expenses.map(
-            (x) =>
-              x.id === e.id
-                ? e
-                : x
-          )
-        : [
-            ...data.expenses,
-            {
-              ...e,
-              id: uid(),
-              createdAt:
-                new Date().toISOString()
-            }
-          ]
+  const save =
+    async e => {
+
+      const expense = {
+
+        ...e,
+
+        amount:
+          number(e.amount),
+
+        date:
+          e.date ||
+          today(),
+
+        paymentMethod:
+          e.paymentMethod ||
+          "Cash",
+
+        description:
+          e.description ||
+          ""
+      };
+
+
+      const next = {
+
+        ...data,
+
+        expenses:
+
+          e.id
+
+            ? data.expenses.map(
+                x =>
+                  x.id === e.id
+                    ? expense
+                    : x
+              )
+
+            : [
+                ...data.expenses,
+
+                {
+                  ...expense,
+
+                  id: uid(),
+
+                  createdAt:
+                    new Date()
+                      .toISOString()
+                }
+              ]
+      };
+
+
+      await update(next);
+
+      setForm(null);
     };
 
-    update(n);
-    setForm(null);
-  };
 
-  const del = (id) => {
-    if (confirm("Delete this expense?")) {
-      update({
+  const del =
+    async id => {
+
+      if (
+        !confirm(
+          "Delete this expense?"
+        )
+      ) {
+        return;
+      }
+
+
+      await update({
+
         ...data,
+
         expenses:
           data.expenses.filter(
-            (e) => e.id !== id
+            e =>
+              e.id !== id
           )
       });
-    }
-  };
+    };
+
 
   return (
+
     <section>
 
       <div className="head">
 
         <div>
-          <h1>Expenses</h1>
+
+          <h1>
+            Expenses
+          </h1>
+
           <p>
             General business expenses are separate from individual orders.
           </p>
+
         </div>
+
 
         <button
           className="primary"
           onClick={() =>
             setForm({
               date: today(),
-              category: "Accommodation",
+              category:
+                "Accommodation",
               description: "",
               amount: "",
-              paymentMethod: "Cash"
+              paymentMethod:
+                "Cash"
             })
           }
         >
@@ -1886,9 +3735,11 @@ function Expenses({ data, update }) {
 
       </div>
 
+
       <div className="expense-total">
 
         <div>
+
           <span>
             {period === "month"
               ? "This month"
@@ -1896,8 +3747,12 @@ function Expenses({ data, update }) {
             general expenses
           </span>
 
-          <b>{money(total)}</b>
+          <b>
+            {money(total)}
+          </b>
+
         </div>
+
 
         <div className="seg">
 
@@ -1913,6 +3768,7 @@ function Expenses({ data, update }) {
           >
             This month
           </button>
+
 
           <button
             className={
@@ -1931,170 +3787,279 @@ function Expenses({ data, update }) {
 
       </div>
 
+
       <div className="toolbar">
 
         <input
           placeholder="Search category or description…"
           value={q}
-          onChange={(e) =>
-            setQ(e.target.value)
+          onChange={e =>
+            setQ(
+              e.target.value
+            )
           }
         />
 
+
         <select
           value={cat}
-          onChange={(e) =>
-            setCat(e.target.value)
+          onChange={e =>
+            setCat(
+              e.target.value
+            )
           }
         >
-          <option>All</option>
 
-          {expenseCategories.map((c) => (
-            <option key={c}>
-              {c}
-            </option>
-          ))}
+          <option>
+            All
+          </option>
+
+          {expenseCategories.map(
+            c => (
+
+              <option
+                key={c}
+              >
+                {c}
+              </option>
+
+            )
+          )}
 
         </select>
 
       </div>
 
+
       <div className="panel">
 
         <div className="expense-table-head">
 
-          <span>Date</span>
-          <span>Category</span>
-          <span>Description</span>
-          <span>Payment</span>
-          <span>Amount</span>
+          <span>
+            Date
+          </span>
+
+          <span>
+            Category
+          </span>
+
+          <span>
+            Description
+          </span>
+
+          <span>
+            Payment
+          </span>
+
+          <span>
+            Amount
+          </span>
+
           <span></span>
 
         </div>
 
-        {rows.length ? (
-          rows.map((e) => (
-            <div
-              className="expense-row"
-              key={e.id}
-            >
 
-              <span>{e.date}</span>
+        {rows.length
 
-              <strong>
-                {e.category}
-              </strong>
+          ? rows.map(
+              e => (
 
-              <span>
-                {e.description || "—"}
-              </span>
-
-              <span>
-                {e.paymentMethod || "—"}
-              </span>
-
-              <b>{money(e.amount)}</b>
-
-              <div className="actions">
-
-                <button
-                  onClick={() =>
-                    setForm(e)
-                  }
+                <div
+                  className="expense-row"
+                  key={e.id}
                 >
-                  Edit
-                </button>
 
-                <button
-                  className="danger"
-                  onClick={() =>
-                    del(e.id)
-                  }
-                >
-                  Delete
-                </button>
+                  <span>
+                    {e.date}
+                  </span>
 
-              </div>
+                  <strong>
+                    {e.category}
+                  </strong>
 
-            </div>
-          ))
-        ) : (
-          <Empty text="No expenses found." />
-        )}
+                  <span>
+                    {e.description ||
+                      "—"}
+                  </span>
+
+                  <span>
+                    {e.paymentMethod ||
+                      "—"}
+                  </span>
+
+                  <b>
+                    {money(
+                      e.amount
+                    )}
+                  </b>
+
+
+                  <div className="actions">
+
+                    <button
+                      onClick={() =>
+                        setForm({
+                          ...e
+                        })
+                      }
+                    >
+                      Edit
+                    </button>
+
+
+                    <button
+                      className="danger"
+                      onClick={() =>
+                        del(e.id)
+                      }
+                    >
+                      Delete
+                    </button>
+
+                  </div>
+
+                </div>
+
+              )
+            )
+
+          : (
+
+            <Empty
+              text="No expenses found."
+            />
+
+          )}
 
       </div>
 
+
       {form && (
+
         <ExpenseForm
           e={form}
           save={save}
-          close={() => setForm(null)}
+          close={() =>
+            setForm(null)
+          }
         />
+
       )}
 
     </section>
   );
 }
 
-function ExpenseSummary({ expenses }) {
-  if (!expenses.length) {
+
+// ============================================================
+// EXPENSE SUMMARY
+// ============================================================
+
+function ExpenseSummary({
+  expenses
+}) {
+
+  if (
+    !expenses.length
+  ) {
+
     return (
-      <Empty text="No general expenses for this period." />
+      <Empty
+        text="No general expenses for this period."
+      />
     );
   }
 
-  const m = {};
 
-  expenses.forEach((e) => {
-    m[e.category] =
-      (m[e.category] || 0) +
-      Number(e.amount || 0);
-  });
+  const totals = {};
+
+
+  expenses.forEach(
+    e => {
+
+      totals[e.category] =
+        (
+          totals[e.category] ||
+          0
+        ) +
+        number(e.amount);
+    }
+  );
+
 
   return (
+
     <>
-      {Object.entries(m)
-        .sort((a, b) => b[1] - a[1])
-        .map(([k, v]) => (
-          <div
-            className="stockline"
-            key={k}
-          >
 
-            <div>
+      {Object.entries(
+        totals
+      )
+        .sort(
+          (a, b) =>
+            b[1] -
+            a[1]
+        )
+        .map(
+          ([category, value]) => (
 
-              <b>{k}</b>
+            <div
+              className="stockline"
+              key={category}
+            >
 
-              <small>
-                {
-                  expenses.filter(
-                    (e) =>
-                      e.category === k
-                  ).length
-                }{" "}
-                entries
-              </small>
+              <div>
+
+                <b>
+                  {category}
+                </b>
+
+                <small>
+                  {
+                    expenses.filter(
+                      e =>
+                        e.category ===
+                        category
+                    ).length
+                  }{" "}
+                  entries
+                </small>
+
+              </div>
+
+
+              <strong>
+                {money(value)}
+              </strong>
 
             </div>
 
-            <strong>
-              {money(v)}
-            </strong>
+          )
+        )}
 
-          </div>
-        ))}
     </>
   );
 }
+
+
+// ============================================================
+// EXPENSE FORM
+// ============================================================
 
 function ExpenseForm({
   e,
   save,
   close
 }) {
-  const [f, setF] = useState(e);
+
+  const [
+    f,
+    setF
+  ] = useState(e);
+
 
   return (
+
     <Modal
       title={
         e.id
@@ -2111,21 +4076,23 @@ function ExpenseForm({
           <input
             type="date"
             value={f.date}
-            onChange={(x) =>
+            onChange={x =>
               setF({
                 ...f,
-                date: x.target.value
+                date:
+                  x.target.value
               })
             }
           />
 
         </Field>
 
+
         <Field l="Category">
 
           <select
             value={f.category}
-            onChange={(x) =>
+            onChange={x =>
               setF({
                 ...f,
                 category:
@@ -2133,24 +4100,33 @@ function ExpenseForm({
               })
             }
           >
+
             {expenseCategories.map(
-              (c) => (
-                <option key={c}>
+              c => (
+
+                <option
+                  key={c}
+                >
                   {c}
                 </option>
+
               )
             )}
+
           </select>
 
         </Field>
 
       </div>
 
+
       <Field l="Description">
 
         <input
-          value={f.description}
-          onChange={(x) =>
+          value={
+            f.description
+          }
+          onChange={x =>
             setF({
               ...f,
               description:
@@ -2162,6 +4138,7 @@ function ExpenseForm({
 
       </Field>
 
+
       <div className="grid2">
 
         <Field l="Amount">
@@ -2171,7 +4148,7 @@ function ExpenseForm({
             min="0"
             step="0.01"
             value={f.amount}
-            onChange={(x) =>
+            onChange={x =>
               setF({
                 ...f,
                 amount:
@@ -2182,11 +4159,15 @@ function ExpenseForm({
 
         </Field>
 
+
         <Field l="Payment method">
 
           <select
-            value={f.paymentMethod}
-            onChange={(x) =>
+            value={
+              f.paymentMethod ||
+              "Cash"
+            }
+            onChange={x =>
               setF({
                 ...f,
                 paymentMethod:
@@ -2194,25 +4175,41 @@ function ExpenseForm({
               })
             }
           >
-            <option>Cash</option>
-            <option>Card</option>
-            <option>Bank transfer</option>
-            <option>Other</option>
+
+            <option>
+              Cash
+            </option>
+
+            <option>
+              Card
+            </option>
+
+            <option>
+              Bank transfer
+            </option>
+
+            <option>
+              Other
+            </option>
+
           </select>
 
         </Field>
 
       </div>
 
+
       <button
         className="primary wide"
         onClick={() =>
-          Number(f.amount) > 0
+          number(f.amount) > 0
+
             ? save({
                 ...f,
                 amount:
-                  Number(f.amount)
+                  number(f.amount)
               })
+
             : alert(
                 "Enter an expense amount."
               )
@@ -2227,65 +4224,117 @@ function ExpenseForm({
   );
 }
 
-/* =====================================================
-   SETTINGS
-===================================================== */
+
+// ============================================================
+// SETTINGS
+// ============================================================
 
 function Settings({
   data,
   update
 }) {
-  const [s, setS] = useState(
+
+  const [
+    s,
+    setS
+  ] = useState(
     data.settings
   );
 
-  const [saved, setSaved] =
-    useState(false);
 
-  const save = async () => {
-    await update({
-      ...data,
-      settings: s
-    });
+  const [
+    saved,
+    setSaved
+  ] = useState(false);
 
-    setSaved(true);
 
-    setTimeout(
-      () => setSaved(false),
-      1600
+  // Keep form synchronized if cloud
+  // settings arrive after page load.
+
+  useEffect(() => {
+
+    setS(
+      data.settings
     );
-  };
 
-  const logo = (e) => {
-    const f =
-      e.target.files?.[0];
+  }, [data.settings]);
 
-    if (!f) return;
 
-    const r =
-      new FileReader();
+  const save =
+    async () => {
 
-    r.onload = () =>
-      setS({
-        ...s,
-        logo: r.result
+      await update({
+
+        ...data,
+
+        settings: {
+          ...s
+        }
       });
 
-    r.readAsDataURL(f);
-  };
+
+      setSaved(true);
+
+
+      setTimeout(
+        () =>
+          setSaved(false),
+        1600
+      );
+    };
+
+
+  const logo =
+    e => {
+
+      const file =
+        e.target.files?.[0];
+
+
+      if (!file) {
+        return;
+      }
+
+
+      const reader =
+        new FileReader();
+
+
+      reader.onload =
+        () => {
+
+          setS({
+            ...s,
+            logo:
+              reader.result
+          });
+        };
+
+
+      reader.readAsDataURL(
+        file
+      );
+    };
+
 
   return (
+
     <section>
 
       <div className="head">
 
         <div>
-          <h1>Seller settings</h1>
+
+          <h1>
+            Seller settings
+          </h1>
 
           <p>
-            This information appears on your receipts.
+            This information appears on your receipts and is stored in D1.
           </p>
+
         </div>
+
 
         <button
           className="primary"
@@ -2298,6 +4347,7 @@ function Settings({
 
       </div>
 
+
       <div className="settings-grid">
 
         <div className="panel">
@@ -2306,11 +4356,14 @@ function Settings({
             Company information
           </h2>
 
+
           <Field l="Company / shop name">
 
             <input
-              value={s.companyName}
-              onChange={(e) =>
+              value={
+                s.companyName
+              }
+              onChange={e =>
                 setS({
                   ...s,
                   companyName:
@@ -2322,13 +4375,16 @@ function Settings({
 
           </Field>
 
+
           <div className="grid2">
 
             <Field l="Phone">
 
               <input
-                value={s.phone}
-                onChange={(e) =>
+                value={
+                  s.phone
+                }
+                onChange={e =>
                   setS({
                     ...s,
                     phone:
@@ -2339,11 +4395,14 @@ function Settings({
 
             </Field>
 
+
             <Field l="WhatsApp">
 
               <input
-                value={s.whatsapp}
-                onChange={(e) =>
+                value={
+                  s.whatsapp
+                }
+                onChange={e =>
                   setS({
                     ...s,
                     whatsapp:
@@ -2356,11 +4415,14 @@ function Settings({
 
           </div>
 
+
           <Field l="Address / location">
 
             <input
-              value={s.address}
-              onChange={(e) =>
+              value={
+                s.address
+              }
+              onChange={e =>
                 setS({
                   ...s,
                   address:
@@ -2371,11 +4433,15 @@ function Settings({
 
           </Field>
 
+
           <Field l="Email">
 
             <input
-              value={s.email}
-              onChange={(e) =>
+              type="email"
+              value={
+                s.email
+              }
+              onChange={e =>
                 setS({
                   ...s,
                   email:
@@ -2386,22 +4452,81 @@ function Settings({
 
           </Field>
 
+
+          <Field l="Currency">
+
+            <select
+              value={
+                s.currency ||
+                "AED"
+              }
+              onChange={e =>
+                setS({
+                  ...s,
+                  currency:
+                    e.target.value
+                })
+              }
+            >
+
+              <option>
+                AED
+              </option>
+
+              <option>
+                USD
+              </option>
+
+              <option>
+                EUR
+              </option>
+
+              <option>
+                GBP
+              </option>
+
+              <option>
+                SAR
+              </option>
+
+              <option>
+                QAR
+              </option>
+
+            </select>
+
+          </Field>
+
         </div>
+
 
         <div className="panel">
 
-          <h2>Company logo</h2>
+          <h2>
+            Company logo
+          </h2>
 
-          {s.logo ? (
-            <img
-              className="logo-preview"
-              src={s.logo}
-            />
-          ) : (
-            <div className="logo-placeholder">
-              No logo
-            </div>
-          )}
+
+          {s.logo
+
+            ? (
+
+              <img
+                className="logo-preview"
+                src={s.logo}
+                alt="Company logo"
+              />
+
+            )
+
+            : (
+
+              <div className="logo-placeholder">
+                No logo
+              </div>
+
+            )}
+
 
           <label className="upload">
 
@@ -2415,25 +4540,26 @@ function Settings({
 
           </label>
 
+
           <p className="hint">
-            PNG/JPG works well. It is stored
-            with your app data and printed on
-            receipts.
+            PNG/JPG works well. The logo is stored in D1 and can appear on receipts across devices.
           </p>
 
         </div>
 
       </div>
 
+
       <div className="panel danger-panel">
 
-        <h2>Data safety</h2>
+        <h2>
+          Data safety
+        </h2>
 
         <p>
-          Local records are stored in
-          IndexedDB and synchronized with
-          Cloudflare D1 when online.
+          Your browser keeps a local IndexedDB cache for offline use, while D1 is used for shared cloud data.
         </p>
+
 
         <button
           className="ghost"
@@ -2450,20 +4576,24 @@ function Settings({
   );
 }
 
-/* =====================================================
-   MODAL
-===================================================== */
+
+// ============================================================
+// MODAL
+// ============================================================
 
 function Modal({
   title,
   close,
   children
 }) {
+
   return (
+
     <div
       className="overlay"
-      onMouseDown={(e) =>
-        e.target === e.currentTarget &&
+      onMouseDown={e =>
+        e.target ===
+          e.currentTarget &&
         close()
       }
     >
@@ -2477,7 +4607,11 @@ function Modal({
           ×
         </button>
 
-        <h2>{title}</h2>
+
+        <h2>
+          {title}
+        </h2>
+
 
         {children}
 
@@ -2487,31 +4621,61 @@ function Modal({
   );
 }
 
+
+// ============================================================
+// FIELD
+// ============================================================
+
 function Field({
   l,
   children
 }) {
+
   return (
+
     <label className="field">
-      <span>{l}</span>
+
+      <span>
+        {l}
+      </span>
+
       {children}
+
     </label>
   );
 }
 
-/* =====================================================
-   RECEIPT
-===================================================== */
+
+// ============================================================
+// RECEIPT
+// ============================================================
 
 function Receipt({
   order,
   data,
   close
 }) {
+
   const s =
-    data.settings || {};
+    data.settings ||
+    empty.settings;
+
+
+  const subtotal =
+    number(order.price);
+
+
+  const delivery =
+    number(order.delivery);
+
+
+  const total =
+    subtotal +
+    delivery;
+
 
   return (
+
     <div className="overlay receipt-overlay">
 
       <div className="receipt-shell">
@@ -2525,6 +4689,7 @@ function Receipt({
             Close
           </button>
 
+
           <button
             className="primary"
             onClick={() =>
@@ -2536,6 +4701,7 @@ function Receipt({
 
         </div>
 
+
         <article className="receipt">
 
           {(s.logo ||
@@ -2544,10 +4710,14 @@ function Receipt({
             <div className="seller">
 
               {s.logo && (
+
                 <img
                   src={s.logo}
+                  alt="Logo"
                 />
+
               )}
+
 
               <div>
 
@@ -2556,35 +4726,49 @@ function Receipt({
                     "Seller"}
                 </h1>
 
+
                 {s.phone && (
+
                   <span>
                     {s.phone}
                   </span>
+
                 )}
 
+
                 {s.whatsapp && (
+
                   <span>
                     WhatsApp:{" "}
                     {s.whatsapp}
                   </span>
+
                 )}
 
+
                 {s.address && (
+
                   <span>
                     {s.address}
                   </span>
+
                 )}
 
+
                 {s.email && (
+
                   <span>
                     {s.email}
                   </span>
+
                 )}
 
               </div>
 
             </div>
+
           )}
+
 
           <div className="receipt-title">
 
@@ -2598,10 +4782,14 @@ function Receipt({
                 ORD-
                 {String(
                   order.orderNo
-                ).padStart(3, "0")}
+                ).padStart(
+                  3,
+                  "0"
+                )}
               </span>
 
             </div>
+
 
             <b>
               {order.date}
@@ -2609,7 +4797,9 @@ function Receipt({
 
           </div>
 
+
           <hr />
+
 
           <div className="customer">
 
@@ -2634,6 +4824,7 @@ function Receipt({
 
             </div>
 
+
             <div>
 
               <small>
@@ -2654,17 +4845,29 @@ function Receipt({
 
           </div>
 
+
           <table>
 
             <thead>
 
               <tr>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Amount</th>
+
+                <th>
+                  Item
+                </th>
+
+                <th>
+                  Qty
+                </th>
+
+                <th>
+                  Amount
+                </th>
+
               </tr>
 
             </thead>
+
 
             <tbody>
 
@@ -2674,7 +4877,9 @@ function Receipt({
                   {order.productName}
                 </td>
 
-                <td>1</td>
+                <td>
+                  1
+                </td>
 
                 <td>
                   {money(
@@ -2688,35 +4893,55 @@ function Receipt({
 
           </table>
 
+
           <div className="totals">
 
             <div>
-              <span>Subtotal</span>
-              <b>
-                {money(order.price)}
-              </b>
-            </div>
 
-            <div>
-              <span>Delivery</span>
+              <span>
+                Subtotal
+              </span>
+
               <b>
                 {money(
-                  order.delivery
+                  subtotal
                 )}
               </b>
+
             </div>
+
+
+            <div>
+
+              <span>
+                Delivery
+              </span>
+
+              <b>
+                {money(
+                  delivery
+                )}
+              </b>
+
+            </div>
+
 
             <div className="total">
 
-              <span>Total</span>
+              <span>
+                Total
+              </span>
 
               <b>
-                {money(order.price)}
+                {money(
+                  total
+                )}
               </b>
 
             </div>
 
           </div>
+
 
           <p className="thanks">
             Thank you for your order.
@@ -2730,46 +4955,64 @@ function Receipt({
   );
 }
 
-/* =====================================================
-   BACKUP
-===================================================== */
+
+// ============================================================
+// BACKUP
+// ============================================================
 
 function downloadBackup(data) {
-  const a =
-    document.createElement("a");
+
+  const blob =
+    new Blob(
+      [
+        JSON.stringify(
+          data,
+          null,
+          2
+        )
+      ],
+      {
+        type:
+          "application/json"
+      }
+    );
+
 
   const url =
     URL.createObjectURL(
-      new Blob(
-        [
-          JSON.stringify(
-            data,
-            null,
-            2
-          )
-        ],
-        {
-          type:
-            "application/json"
-        }
-      )
+      blob
     );
+
+
+  const a =
+    document.createElement(
+      "a"
+    );
+
 
   a.href = url;
 
   a.download =
     `sale-tracker-backup-${today()}.json`;
 
+
   a.click();
 
-  URL.revokeObjectURL(url);
+
+  URL.revokeObjectURL(
+    url
+  );
 }
 
-/* =====================================================
-   START REACT
-===================================================== */
+
+// ============================================================
+// START APP
+// ============================================================
 
 createRoot(
-  document.getElementById("root")
-).render(<App />);
-
+  document.getElementById(
+    "root"
+  )
+).render(
+  <App />
+);
