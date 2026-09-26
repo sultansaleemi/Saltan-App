@@ -1347,6 +1347,22 @@ function App() {
   };
 
 
+  const refreshApp = async () => {
+    showToast("Refreshing latest data…");
+
+    try {
+      const registration =
+        await navigator.serviceWorker?.getRegistration();
+
+      await registration?.update();
+    } catch (error) {
+      console.warn("App refresh update failed:", error);
+    } finally {
+      window.location.reload();
+    }
+  };
+
+
   const dataRef =
     useRef(null);
 
@@ -1808,6 +1824,16 @@ function App() {
             Install app
           </button>
         )}
+
+
+        <button
+          className="ghost refresh-btn"
+          onClick={refreshApp}
+          type="button"
+          aria-label="Refresh app and data"
+        >
+          ↻ Refresh
+        </button>
 
 
         <div
