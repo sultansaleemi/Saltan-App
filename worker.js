@@ -13,7 +13,7 @@ export default {
 };
 
 async function handleApi(request, env, url) {
-  const path = url.pathname.replace(/^\/api\/?/, "");
+  const path = url.pathname.slice(5);
   const parts = path.split("/").filter(Boolean);
 
   const resource = parts[0];
