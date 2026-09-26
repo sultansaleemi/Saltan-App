@@ -918,10 +918,10 @@ function Dashboard({
         />
 
         <K
-          label="Expenses"
-          v={stats.expenseCount}
-          icon="💸"
-        />
+  label="Expenses"
+  v={money(stats.expenses)}
+  icon="💸"
+/>
 
         <K
           label="Orders"
