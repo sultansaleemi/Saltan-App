@@ -47,3 +47,13 @@ button:active{transform:translateY(0) scale(.97)}
 @keyframes actionReveal{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
 @media(max-width:900px){.top{gap:9px}.install-btn,.refresh-btn{padding:8px 10px}.top>div[style]{font-size:10px!important;margin-left:auto!important;margin-right:0!important}}
 @media(max-width:600px){.top{padding:12px 14px;gap:8px}.top .brand{font-size:19px}.install-btn,.refresh-btn{font-size:0;width:34px;height:34px;justify-content:center;padding:0;border-radius:10px}.install-btn:before{content:"＋";font-size:19px;line-height:1}.refresh-btn:before{content:"↻";font-size:20px;line-height:1}.top .add{font-size:0;width:36px;height:36px;padding:0;border-radius:11px}.top .add:first-letter{font-size:22px}.top>div[style]{order:4;width:100%;margin-top:1px!important}.top .install-btn{margin-left:auto}}
+
+/* Navigation icons */
+.top nav button{display:inline-flex;align-items:center;gap:7px}
+.nav-icon{width:17px;height:17px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .28s var(--ease),filter .28s ease}
+.top nav button:hover .nav-icon,.top nav button.active .nav-icon{transform:translateY(-1px) rotate(-4deg);filter:drop-shadow(0 3px 5px rgba(203,161,53,.35))}
+.top nav button.active .nav-icon{color:var(--gold)}
+.mobilebar .nav-icon{width:21px;height:21px;transition:transform .3s var(--ease),filter .3s ease}
+.mobilebar button.sel .nav-icon{transform:translateY(-2px) scale(1.08);filter:drop-shadow(0 3px 6px rgba(203,161,53,.4))}
+.mobilebar button:active .nav-icon{transform:scale(.88)}
+@media(max-width:600px){.mobilebar button span{text-transform:capitalize}.mobilebar button b{height:23px;display:flex;align-items:center}}

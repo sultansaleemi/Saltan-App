@@ -1272,6 +1272,10 @@ function App() {
     text,
     extra = null
   ) => {
+    const currentData =
+      dataRef.current ||
+      data;
+
     const entry = {
       id: uid(),
       type,
@@ -1282,10 +1286,10 @@ function App() {
     };
 
     await update({
-      ...data,
+      ...currentData,
       activities: [
         entry,
-        ...(data.activities || [])
+        ...(currentData.activities || [])
       ].slice(0, 25)
     });
   };
@@ -1843,31 +1847,11 @@ function App() {
 
 
   const nav = [
-
-    [
-      "dashboard",
-      "⌂ Dashboard"
-    ],
-
-    [
-      "products",
-      "◫ Products"
-    ],
-
-    [
-      "orders",
-      "▤ Orders"
-    ],
-
-    [
-      "expenses",
-      "▣ Expenses"
-    ],
-
-    [
-      "settings",
-      "⚙ Settings"
-    ]
+    ["dashboard", "Dashboard"],
+    ["products", "Products"],
+    ["orders", "Orders"],
+    ["expenses", "Expenses"],
+    ["settings", "Settings"]
   ];
 
 
@@ -1953,7 +1937,12 @@ function App() {
                   setPage(id)
                 }
               >
-                {label}
+                <NavIcon
+                  id={id}
+                />
+                <span>
+                  {label}
+                </span>
               </button>
             )
           )}
@@ -2069,7 +2058,9 @@ function App() {
               }
             >
               <b>
-                {label[0]}
+                <NavIcon
+                  id={id}
+                />
               </b>
 
               <span>
@@ -2145,6 +2136,35 @@ function App() {
 // ============================================================
 // DASHBOARD
 // ============================================================
+
+function NavIcon({
+  id
+}) {
+
+  const paths = {
+    dashboard: "M3 12 12 4l9 8M5 10v10h14V10M9 20v-6h6v6",
+    products: "M4 7h16M4 12h16M4 17h10M7 4v16",
+    orders: "M6 3h12v18H6zM9 7h6M9 11h6M9 15h4",
+    expenses: "M5 4h14v16H5zM8 8h8M8 12h8M8 16h5",
+    settings: "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM4 12h2m12 0h2M12 4v2m0 12v2M6.3 6.3l1.4 1.4m8.6 8.6 1.4 1.4m0-11.4-1.4 1.4M7.7 16.3l-1.4 1.4"
+  };
+
+
+  return (
+
+    <svg
+      className="nav-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d={paths[id]}
+      />
+    </svg>
+  );
+}
+
 
 function Dashboard({
   data,
@@ -3587,6 +3607,32 @@ function SaleModal({
         />
 
       </Field>
+
+
+      {editing && (
+
+        <Field l="Order number">
+
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={
+              f.orderNo ??
+              ""
+            }
+            onChange={e =>
+              setF({
+                ...f,
+                orderNo:
+                  e.target.value
+              })
+            }
+          />
+
+        </Field>
+
+      )}
 
 
       <div className="grid2">
