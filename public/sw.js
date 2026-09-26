@@ -1,5 +1,10 @@
 const CACHE = 'sale-tracker-v2';
-const PRECACHE = ['/', '/manifest.webmanifest'];
+const PRECACHE = [
+  '/',
+  '/manifest.webmanifest',
+  '/icon-192.png',
+  '/icon-512.png'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
