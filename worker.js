@@ -2,14 +2,19 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // API routes
     if (url.pathname.startsWith("/api/")) {
       return handleApi(request, env, url);
     }
 
-    // Everything else goes to the React/Vite app
+    if (!env.ASSETS) {
+      return new Response(
+        "ASSETS binding is missing. This usually happens on preview deployments. Try a full `wrangler deploy` or update Wrangler.",
+        { status: 500, headers: { "Content-Type": "text/plain" } }
+      );
+    }
+
     return env.ASSETS.fetch(request);
-  }
+  },
 };
 
 async function handleApi(request, env, url) {
