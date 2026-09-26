@@ -1,4 +1,4 @@
-const CACHE = 'sale-tracker-v3';
+const CACHE = 'sale-tracker-v4';
 const PRECACHE = [
   '/',
   '/manifest.webmanifest',
