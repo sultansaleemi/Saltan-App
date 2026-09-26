@@ -1,72 +1,44 @@
-const json = (data, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store"
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // API routes
+    if (url.pathname.startsWith("/api/")) {
+      return handleApi(request, env, url);
     }
-  });
 
-const newId = () => crypto.randomUUID();
-
-const now = () => new Date().toISOString();
-
-async function getBody(request) {
-  try {
-    return await request.json();
-  } catch {
-    return {};
+    // Everything else goes to the React/Vite app
+    return env.ASSETS.fetch(request);
   }
-}
-
-const number = value => {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
 };
 
-export async function onRequest({ request, env, params }) {
-
-  if (!env.DB) {
-    return json({
-      ok: false,
-      error: "D1 database binding 'DB' is missing."
-    }, 500);
-  }
-
-  const method = request.method;
-  const path = Array.isArray(params?.path)
-    ? params.path.join("/")
-    : (params?.path || "");
-
+async function handleApi(request, env, url) {
+  const path = url.pathname.replace(/^\/api\/?/, "");
   const parts = path.split("/").filter(Boolean);
+
   const resource = parts[0];
-  const resourceId = parts[1];
+  const id = parts[1];
 
   try {
-
-    /* =========================
-       HEALTH CHECK
-       ========================= */
-
-    if (resource === "health" && method === "GET") {
+    // -------------------------
+    // HEALTH CHECK
+    // -------------------------
+    if (resource === "health" && request.method === "GET") {
       await env.DB.prepare("SELECT 1").first();
 
       return json({
         ok: true,
         service: "SALTAN FASION",
         database: "connected",
-        time: now()
+        time: new Date().toISOString()
       });
     }
 
-
-    /* =========================
-       PRODUCTS
-       ========================= */
-
+    // -------------------------
+    // PRODUCTS
+    // -------------------------
     if (resource === "products") {
-
-      if (method === "GET") {
+      if (request.method === "GET") {
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -81,12 +53,11 @@ export async function onRequest({ request, env, params }) {
         });
       }
 
-      if (method === "POST") {
+      if (request.method === "POST") {
+        const body = await readJson(request);
 
-        const body = await getBody(request);
-
-        const id = body.id || newId();
-        const timestamp = now();
+        const id = body.id || crypto.randomUUID();
+        const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
           INSERT INTO products
@@ -121,12 +92,11 @@ export async function onRequest({ request, env, params }) {
         }, 201);
       }
 
-      if (method === "DELETE" && resourceId) {
-
+      if (request.method === "DELETE" && id) {
         await env.DB.prepare(`
           DELETE FROM products
           WHERE id = ?
-        `).bind(resourceId).run();
+        `).bind(id).run();
 
         return json({
           ok: true
@@ -134,15 +104,11 @@ export async function onRequest({ request, env, params }) {
       }
     }
 
-
-    /* =========================
-       ORDERS
-       ========================= */
-
+    // -------------------------
+    // ORDERS
+    // -------------------------
     if (resource === "orders") {
-
-      if (method === "GET") {
-
+      if (request.method === "GET") {
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -157,12 +123,11 @@ export async function onRequest({ request, env, params }) {
         });
       }
 
-      if (method === "POST") {
+      if (request.method === "POST") {
+        const body = await readJson(request);
 
-        const body = await getBody(request);
-
-        const id = body.id || newId();
-        const timestamp = now();
+        const id = body.id || crypto.randomUUID();
+        const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
           INSERT INTO orders
@@ -183,13 +148,10 @@ export async function onRequest({ request, env, params }) {
             created_at,
             updated_at
           )
-
-          VALUES
-          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
           ON CONFLICT(id)
           DO UPDATE SET
-
             order_no = excluded.order_no,
             product_id = excluded.product_id,
             product_name = excluded.product_name,
@@ -204,43 +166,23 @@ export async function onRequest({ request, env, params }) {
             customer_location = excluded.customer_location,
             updated_at = excluded.updated_at
         `).bind(
-
           id,
-
-          Math.trunc(
-            number(body.orderNo)
-          ),
-
+          Math.trunc(number(body.orderNo)),
           body.productId || null,
-
-          String(
-            body.productName || ""
-          ),
-
+          String(body.productName || ""),
           number(body.price),
-
           number(body.cost),
-
           number(body.deliveryCost),
-
           number(body.otherExpense),
-
           body.status || "Pending",
-
           body.orderDate ||
-          body.date ||
-          timestamp.slice(0, 10),
-
+            body.date ||
+            timestamp.slice(0, 10),
           body.customerName || null,
-
           body.customerPhone || null,
-
           body.customerLocation || null,
-
           timestamp,
-
           timestamp
-
         ).run();
 
         return json({
@@ -249,12 +191,11 @@ export async function onRequest({ request, env, params }) {
         }, 201);
       }
 
-      if (method === "DELETE" && resourceId) {
-
+      if (request.method === "DELETE" && id) {
         await env.DB.prepare(`
           DELETE FROM orders
           WHERE id = ?
-        `).bind(resourceId).run();
+        `).bind(id).run();
 
         return json({
           ok: true
@@ -262,15 +203,11 @@ export async function onRequest({ request, env, params }) {
       }
     }
 
-
-    /* =========================
-       PURCHASES
-       ========================= */
-
+    // -------------------------
+    // PURCHASES
+    // -------------------------
     if (resource === "purchases") {
-
-      if (method === "GET") {
-
+      if (request.method === "GET") {
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -285,11 +222,11 @@ export async function onRequest({ request, env, params }) {
         });
       }
 
-      if (method === "POST") {
+      if (request.method === "POST") {
+        const body = await readJson(request);
 
-        const body = await getBody(request);
-
-        const id = body.id || newId();
+        const id = body.id || crypto.randomUUID();
+        const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
           INSERT INTO purchases
@@ -303,12 +240,10 @@ export async function onRequest({ request, env, params }) {
             purchase_date,
             created_at
           )
-
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 
           ON CONFLICT(id)
           DO UPDATE SET
-
             product_id = excluded.product_id,
             product_name = excluded.product_name,
             quantity = excluded.quantity,
@@ -316,27 +251,16 @@ export async function onRequest({ request, env, params }) {
             total = excluded.total,
             purchase_date = excluded.purchase_date
         `).bind(
-
           id,
-
           body.productId || null,
-
           body.productName || "",
-
-          Math.trunc(
-            number(body.quantity)
-          ),
-
+          Math.trunc(number(body.quantity)),
           number(body.costEach),
-
           number(body.total),
-
           body.purchaseDate ||
-          body.date ||
-          now().slice(0, 10),
-
-          now()
-
+            body.date ||
+            timestamp.slice(0, 10),
+          timestamp
         ).run();
 
         return json({
@@ -346,15 +270,11 @@ export async function onRequest({ request, env, params }) {
       }
     }
 
-
-    /* =========================
-       EXPENSES
-       ========================= */
-
+    // -------------------------
+    // EXPENSES
+    // -------------------------
     if (resource === "expenses") {
-
-      if (method === "GET") {
-
+      if (request.method === "GET") {
         const { results } = await env.DB
           .prepare(`
             SELECT *
@@ -369,11 +289,11 @@ export async function onRequest({ request, env, params }) {
         });
       }
 
-      if (method === "POST") {
+      if (request.method === "POST") {
+        const body = await readJson(request);
 
-        const body = await getBody(request);
-
-        const id = body.id || newId();
+        const id = body.id || crypto.randomUUID();
+        const timestamp = new Date().toISOString();
 
         await env.DB.prepare(`
           INSERT INTO expenses
@@ -387,12 +307,10 @@ export async function onRequest({ request, env, params }) {
             created_at,
             updated_at
           )
-
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 
           ON CONFLICT(id)
           DO UPDATE SET
-
             title = excluded.title,
             amount = excluded.amount,
             category = excluded.category,
@@ -400,25 +318,16 @@ export async function onRequest({ request, env, params }) {
             notes = excluded.notes,
             updated_at = excluded.updated_at
         `).bind(
-
           id,
-
           body.title || "",
-
           number(body.amount),
-
           body.category || null,
-
           body.expenseDate ||
-          body.date ||
-          now().slice(0, 10),
-
+            body.date ||
+            timestamp.slice(0, 10),
           body.notes || null,
-
-          now(),
-
-          now()
-
+          timestamp,
+          timestamp
         ).run();
 
         return json({
@@ -427,12 +336,11 @@ export async function onRequest({ request, env, params }) {
         }, 201);
       }
 
-      if (method === "DELETE" && resourceId) {
-
+      if (request.method === "DELETE" && id) {
         await env.DB.prepare(`
           DELETE FROM expenses
           WHERE id = ?
-        `).bind(resourceId).run();
+        `).bind(id).run();
 
         return json({
           ok: true
@@ -440,21 +348,38 @@ export async function onRequest({ request, env, params }) {
       }
     }
 
-
-    /* =========================
-       NOT FOUND
-       ========================= */
-
     return json({
       ok: false,
       error: "API route not found"
     }, 404);
 
   } catch (error) {
-
     return json({
       ok: false,
       error: error.message
     }, 500);
   }
+}
+
+async function readJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
+}
+
+function number(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    }
+  });
 }
