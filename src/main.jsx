@@ -25,7 +25,7 @@ function App(){
  const [data,setData]=useState(null),[page,setPage]=useState("dashboard"),[sale,setSale]=useState(false),[receipt,setReceipt]=useState(null),[editOrder,setEditOrder]=useState(null),[period,setPeriod]=useState("month");
  useEffect(()=>{(async()=>{let d=await dbGet();if(!d){try{const old=JSON.parse(localStorage.getItem(OLD_KEY)||"null");d=old?merge(old):empty}catch{d=empty}await dbPut(d)}else if(!d.expenses){d=merge(d);await dbPut(d)}setData(merge(d))})()},[]);
  const update=async d=>{d=merge(d);setData(d);await dbPut(d)};
- if(!data)return <div className="loading">Loading Sale Tracker…</div>;
+ if(!data)return <div className="loading">Loading SALTAN FASHION…</div>;
 
  const orders=period==="all"?data.orders:data.orders.filter(o=>monthMatch(o.date));
  const purchases=period==="all"?data.purchases:data.purchases.filter(p=>monthMatch(p.date));
