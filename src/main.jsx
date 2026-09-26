@@ -1347,10 +1347,36 @@ function App() {
   };
 
 
+  const refreshData = async () => {
+    const current =
+      dataRef.current;
+
+    if (!current) return;
+
+    try {
+      const latest =
+        merge(
+          await initialSync(current)
+        );
+
+      await dbPut(latest);
+
+      dataRef.current = latest;
+      setData(latest);
+      setSyncState("connected");
+    } catch (error) {
+      console.warn("Background data refresh failed:", error);
+      setSyncState("offline");
+    }
+  };
+
+
   const refreshApp = async () => {
     showToast("Refreshing latest data…");
 
     try {
+      await refreshData();
+
       const registration =
         await navigator.serviceWorker?.getRegistration();
 
@@ -1554,6 +1580,47 @@ function App() {
       );
     }
   };
+
+
+  useEffect(() => {
+    const updateApp = () => {
+      navigator.serviceWorker
+        ?.getRegistration()
+        .then(
+          registration =>
+            registration?.update()
+        )
+        .catch(() => {});
+    };
+
+    const refreshWhenVisible = () => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        updateApp();
+        refreshData();
+      }
+    };
+
+    const interval = setInterval(
+      refreshWhenVisible,
+      60000
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      refreshWhenVisible
+    );
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener(
+        "visibilitychange",
+        refreshWhenVisible
+      );
+    };
+  }, []);
 
 
   if (!data) {
