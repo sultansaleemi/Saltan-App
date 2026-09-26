@@ -13,7 +13,7 @@ const today=()=>new Date().toISOString().slice(0,10);
 const money=n=>"AED "+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{maximumFractionDigits:2});
 const merge=d=>({...empty,...d,products:d?.products||[],orders:d?.orders||[],purchases:d?.purchases||[],expenses:d?.expenses||[],settings:{...empty.settings,...(d?.settings||{})}});
 
-function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains(STORE))r.result.createObjectStore(STORE);};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function dbGet(){const db=await openDB();return new Promise((res,rej)=>{const r=db.transaction(STORE).objectStore(STORE).get("data");r.onsuccess=()=>res(r.result||null);r.onerror=()=>rej(r.error)})}
 async function dbPut(data){const db=await openDB();return new Promise((res,rej)=>{const r=db.transaction(STORE,"readwrite").objectStore(STORE).put(data,"data");r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
 function revenue(o){return o.status==="Cancelled"?0:Number(o.price)||0}
@@ -35,7 +35,7 @@ function App(){
  const stockEx=purchases.reduce((s,p)=>s+Number(p.total||0),0);
  const generalEx=expenses.reduce((s,e)=>s+Number(e.amount||0),0);
  const stock=data.products.reduce((s,p)=>s+Math.max(0,p.stock-data.orders.filter(o=>o.productId===p.id&&!["Cancelled"].includes(o.status)&&["Dispatched","Delivered"].includes(o.status)).length),0);
- const stats={sales,orderEx,stockEx,generalEx,expenses:orderEx+stockEx+generalEx,profit:sales-orderEx-stockEx-generalEx,orders:orders.length,pending:orders.filter(o=>o.status==="Pending").length,stock};
+ const stats={sales,orderEx,stockEx,generalEx,expenses:orderEx+stockEx+generalEx,expenseCount:expenses.length,profit:sales-orderEx-stockEx-generalEx,orders:orders.length,pending:orders.filter(o=>o.status==="Pending").length,stock};
 
  const nav=[["dashboard","⌂ Dashboard"],["products","◫ Products"],["orders","▤ Orders"],["expenses","▣ Expenses"],["settings","⚙ Settings"]];
  return <div className="app">
@@ -57,7 +57,7 @@ function App(){
 function Dashboard({data,stats,period,setPeriod,openReceipt,edit}){
  const recent=[...data.orders].sort((a,b)=>b.orderNo-a.orderNo).slice(0,8);
  return <section><div className="head"><div><h1>Dashboard</h1><p>Sales, stock and expenses at a glance.</p></div><div className="seg"><button className={period==="month"?"on":""} onClick={()=>setPeriod("month")}>This month</button><button className={period==="all"?"on":""} onClick={()=>setPeriod("all")}>All time</button></div></div>
- <div className="kpis"><K label="Net profit" v={money(stats.profit)} a/><K label="Sales" v={money(stats.sales)}/><K label="All expenses" v={money(stats.expenses)}/><K label="Orders" v={stats.orders}/><K label="In stock" v={stats.stock}/><K label="Pending" v={stats.pending} d/></div>
+ <div className="kpis"><K label="Net profit" v={money(stats.profit)} a/><K label="Sales" v={money(stats.sales)}/><K label="Expenses" v={stats.expenseCount} icon="💸"/><K label="Orders" v={stats.orders}/><K label="In stock" v={stats.stock}/><K label="Pending" v={stats.pending} d/></div><div className="expense-highlight"><div><span>General expenses</span><b>{money(stats.generalEx)}</b><small>{stats.expenseCount} expense records this period</small></div><button onClick={()=>document.querySelectorAll(".mobilebar button")[3]?.click()}>View expenses →</button></div>
  <div className="dashboard-grid"><div className="panel"><div className="panel-head"><h2>Recent orders</h2><span>{data.orders.length} total</span></div>{recent.length?recent.map(o=><OrderRow key={o.id} o={o} edit={edit} receipt={openReceipt}/>):<Empty text="No orders yet."/>}</div>
  <div className="panel"><div className="panel-head"><h2>Expenses</h2><span>{data.expenses.length} general</span></div><ExpenseSummary expenses={data.expenses.filter(e=>period==="all"||monthMatch(e.date))}/></div></div></section>
 }
