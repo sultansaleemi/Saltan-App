@@ -212,12 +212,12 @@ async function apiRequest(path, options = {}) {
 
   if (
     !response.ok ||
-    json.ok === false
+    json.ok !== true
   ) {
 
     throw new Error(
       json.error ||
-      `API error ${response.status}`
+      `API unavailable or invalid response (${response.status})`
     );
   }
 
@@ -1678,7 +1678,7 @@ function App() {
       setData(pending);
       await dbPut(pending);
       showToast(
-        "Saved on device. Cloud sync will retry when online."
+        `Saved on device. Cloud sync will retry: ${error.message}`
       );
 
       return false;
